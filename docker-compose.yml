@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: agentsentinel-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_NAME=AgentSentinel
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+    restart: unless-stopped
