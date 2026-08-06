@@ -1,3 +1,4 @@
+from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -6,8 +7,10 @@ from app.db.crud import get_security_event_by_id
 from app.db.session import get_db
 from app.interceptor.proxy import intercept_tool_call
 from app.interceptor.schema import InterceptorResponse, ToolCallRequest
+from app.policy.engine import default_policy_engine
+from app.policy.schemas import PolicyRule
 
-router = APIRouter(prefix="/api/v1/intercept", tags=["Runtime Interceptor Proxy"])
+router = APIRouter(prefix="/api/v1", tags=["Runtime Interceptor & Policy Engine"])
 
 class DecisionOverrideRequest(BaseModel):
     event_id: str = Field(..., description="Target security event UUID")
@@ -15,23 +18,29 @@ class DecisionOverrideRequest(BaseModel):
     reviewer: str = Field(..., description="Human reviewer user ID")
     notes: str = Field("", description="Review notes")
 
-@router.get("/health", summary="Interceptor Proxy Health Status")
+@router.get("/intercept/health", summary="Interceptor Proxy Health Status")
 async def interceptor_health():
     """Returns runtime proxy operational health status."""
     return {
         "status": "ok",
-        "component": "AgentSentinel Runtime Interceptor Proxy",
-        "interception_mode": "ACTIVE_PRE_EXECUTION",
+        "component": "AgentSentinel Runtime Interceptor Proxy & Policy Engine",
+        "interception_mode": "ACTIVE_RBAC_ABAC_PRE_EXECUTION",
+        "active_rules_count": len(default_policy_engine.rules),
     }
 
-@router.post("/tool-call", response_model=InterceptorResponse, summary="Intercept Tool Call Request")
+@router.get("/policy/rules", response_model=List[PolicyRule], summary="List Active RBAC/ABAC Security Policy Rules")
+async def get_policy_rules():
+    """Returns all active priority-ordered RBAC, ABAC, and Security Policy rules."""
+    return default_policy_engine.rules
+
+@router.post("/intercept/tool-call", response_model=InterceptorResponse, summary="Intercept Tool Call Request")
 async def handle_tool_call_interception(
     request: ToolCallRequest,
     db: Session = Depends(get_db)
 ):
     """
     Intercepts an AI Agent tool call request before execution.
-    Normalizes payload, evaluates security rules, persists audit record in PostgreSQL,
+    Normalizes payload, evaluates Phase 5 RBAC/ABAC policy rules, persists audit record in PostgreSQL,
     and returns a structured decision (ALLOW, BLOCK, REQUIRE_APPROVAL).
     """
     try:
@@ -43,7 +52,7 @@ async def handle_tool_call_interception(
             detail=f"Interceptor processing failure: {str(e)}"
         )
 
-@router.post("/decision", summary="Manual Approval Decision Override")
+@router.post("/intercept/decision", summary="Manual Approval Decision Override")
 async def override_decision(
     override: DecisionOverrideRequest,
     db: Session = Depends(get_db)
@@ -82,7 +91,7 @@ async def override_decision(
         "decision_reason": event.decision_reason,
     }
 
-@router.get("/events/{event_id}", summary="Get Intercepted Event Details")
+@router.get("/intercept/events/{event_id}", summary="Get Intercepted Event Details")
 async def get_intercepted_event(
     event_id: str,
     db: Session = Depends(get_db)
