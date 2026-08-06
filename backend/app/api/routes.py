@@ -1,5 +1,8 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
 from app.core.config import settings
+from app.db.session import get_db
+from app.db.crud import list_security_events, save_security_event
 from app.events.examples import get_benign_event_example, get_suspicious_event_example
 
 router = APIRouter()
@@ -25,3 +28,17 @@ async def get_suspicious_event():
     """Returns an example suspicious / unauthorized tool action security event."""
     event = get_suspicious_event_example()
     return event.to_dict()
+
+@router.get("/api/v1/events/db-test", tags=["Database"])
+async def test_db_persistence(db: Session = Depends(get_db)):
+    """Saves a sample security event to the database and retrieves all logged events."""
+    sample_event = get_suspicious_event_example()
+    save_security_event(db, sample_event)
+    events = list_security_events(db, limit=10)
+    return {
+        "status": "success",
+        "message": "Database event persistence test passed",
+        "total_events_in_db": len(events),
+        "latest_event_id": events[0].event_id if events else None,
+        "latest_event_tool": events[0].tool_name if events else None,
+    }
