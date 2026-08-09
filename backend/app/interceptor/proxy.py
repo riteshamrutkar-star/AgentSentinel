@@ -2,18 +2,18 @@ import time
 from typing import Optional
 from sqlalchemy.orm import Session
 
-from app.db.crud import save_security_event
+from app.audit.service import record_audit_entry
 from app.interceptor.normalizer import normalize_tool_call_request
 from app.interceptor.schema import InterceptorResponse, ToolCallRequest
 from app.policy.engine import default_policy_engine
 
 def intercept_tool_call(request: ToolCallRequest, db: Session) -> InterceptorResponse:
     """
-    Main runtime proxy entry point (Phase 4 Proxy + Phase 5 Policy Engine):
+    Main runtime proxy entry point (Phase 4 Interceptor + Phase 5 Policy Engine + Phase 6 Audit/Approval Workflow):
     1. Normalizes incoming raw tool call request into a SecurityEvent model.
     2. Evaluates the SecurityEvent through the Phase 5 RBAC/ABAC PolicyEngine.
     3. Calculates interception & policy evaluation latency.
-    4. Persists the event and policy verdict into PostgreSQL.
+    4. Records the event in PostgreSQL audit storage and provisions approval requests if required.
     5. Returns structured InterceptorResponse verdict.
     """
     start_time = time.perf_counter()
@@ -28,8 +28,8 @@ def intercept_tool_call(request: ToolCallRequest, db: Session) -> InterceptorRes
     latency_ms = round((time.perf_counter() - start_time) * 1000, 2)
     security_event.execution_context.latency_ms = latency_ms
 
-    # Step 4: Persist event and policy verdict into PostgreSQL database via Phase 3B CRUD
-    db_record = save_security_event(db, security_event)
+    # Step 4: Record audit log entry and provision approval request in PostgreSQL (Phase 6 Service)
+    db_record = record_audit_entry(db, security_event)
 
     # Step 5: Format response verdict
     return InterceptorResponse(
