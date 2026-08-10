@@ -22,7 +22,7 @@ class BehavioralFeatureExtractor:
         tool_sequence = []
         timestamps = []
 
-        sensitive_keywords = [".ssh", "id_rsa", "shadow", "passwd", ".env", "credentials", "private_key", "drop_table", "delete_all"]
+        sensitive_keywords = [".ssh", "id_rsa", "shadow", "passwd", ".env", "credentials", "private_key", "drop_table", "delete_all", "read_system_file", "hosts", "system32"]
 
         for idx, evt in enumerate(events):
             # Extract tool name & decision result
@@ -33,7 +33,7 @@ class BehavioralFeatureExtractor:
 
             tool_sequence.append(t_name.lower())
 
-            if d_result in ("DENY", "BLOCK", "REJECTED"):
+            if str(d_result).upper() in ("DENY", "BLOCK", "REJECTED", "REQUIRE_APPROVAL"):
                 denied_count += 1
 
             if any(kw in t_resource.lower() or kw in t_name.lower() for kw in sensitive_keywords):
@@ -63,10 +63,10 @@ class BehavioralFeatureExtractor:
 
         # Sequence transition analysis (e.g. read/search -> read_file -> privileged_access)
         seq_str = " -> ".join(tool_sequence)
-        if "search" in seq_str and ("read_file" in seq_str or "read_system_file" in seq_str) and any(kw in seq_str for kw in sensitive_keywords):
+        if ("search" in seq_str or "read" in seq_str) and ("read_system_file" in seq_str or "hosts" in seq_str) and any(kw in seq_str for kw in sensitive_keywords):
             transition_penalty += 0.40
-        if denied_count >= 2:
-            transition_penalty += 0.30
+        if denied_count >= 1:
+            transition_penalty += 0.25
 
         # Role / Tool Mismatch indicator
         role_mismatch = 0.0

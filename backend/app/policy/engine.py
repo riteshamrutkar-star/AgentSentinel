@@ -40,19 +40,19 @@ class PolicyEngine:
         return False
 
     def _matches_resource_pattern(self, pattern: str, target_resource: str, arguments_payload: dict) -> bool:
-        """Helper to check target resource string or arguments dictionary against resource patterns."""
+        """Helper to check target resource string or arguments dictionary against resource patterns with path normalization."""
         if not pattern or pattern == "*":
             return True
 
-        args_str = str(arguments_payload).lower()
-        res_str = target_resource.lower()
+        args_str = str(arguments_payload).lower().replace("\\", "/")
+        res_str = target_resource.lower().replace("\\", "/")
 
         sub_patterns = pattern.split("|")
         for sub in sub_patterns:
-            sub = sub.strip().lower()
+            sub = sub.strip().lower().replace("\\", "/")
             if not sub:
                 continue
-            # Remove glob wildcards for simple substring check if regex special
+            # Remove glob wildcards for simple substring check
             clean_sub = sub.replace("*", "").strip()
             if clean_sub and (clean_sub in res_str or clean_sub in args_str):
                 return True
