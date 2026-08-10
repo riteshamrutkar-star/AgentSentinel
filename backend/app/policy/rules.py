@@ -39,7 +39,7 @@ def get_default_policy_rules() -> List[PolicyRule]:
             rule_type=RuleType.ABAC,
             effect=RuleEffect.REQUIRE_APPROVAL,
             role="*",
-            tool_name="drop_table|drop_database|delete_all",
+            tool_name="*drop*|*delete*|drop_table|drop_database|drop_database_table|delete_all",
             action_type="DATABASE",
             resource_pattern="*",
             priority=10,

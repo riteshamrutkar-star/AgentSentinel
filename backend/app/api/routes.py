@@ -7,6 +7,7 @@ from app.events.examples import get_benign_event_example, get_suspicious_event_e
 from app.api.intercept import router as intercept_router
 from app.api.audit import router as audit_router
 from app.api.anomaly import router as anomaly_router
+from app.api.agent import router as agent_router
 
 router = APIRouter()
 
@@ -18,6 +19,9 @@ router.include_router(audit_router)
 
 # Include Phase 7 Behavioral Anomaly Router
 router.include_router(anomaly_router)
+
+# Include Phase 8 Real Agent Integration Router
+router.include_router(agent_router)
 
 @router.get("/health", tags=["Health"])
 async def health_check():
