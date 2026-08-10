@@ -8,6 +8,7 @@ from app.api.intercept import router as intercept_router
 from app.api.audit import router as audit_router
 from app.api.anomaly import router as anomaly_router
 from app.api.agent import router as agent_router
+from app.api.dashboard import router as dashboard_router
 
 router = APIRouter()
 
@@ -22,6 +23,9 @@ router.include_router(anomaly_router)
 
 # Include Phase 8 Real Agent Integration Router
 router.include_router(agent_router)
+
+# Include Phase 9 Live Security Dashboard Router
+router.include_router(dashboard_router)
 
 @router.get("/health", tags=["Health"])
 async def health_check():

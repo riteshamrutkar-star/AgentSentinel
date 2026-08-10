@@ -1,5 +1,5 @@
 import os
-from typing import Optional
+from typing import Optional, Tuple, Union
 from urllib.parse import quote_plus
 from pydantic_settings import BaseSettings
 
@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     # PostgreSQL Database Configuration
     POSTGRES_USER: str = "postgres"
     POSTGRES_PASSWORD: str = "postgres"
-    POSTGRES_HOST: str = "localhost"
+    POSTGRES_HOST: str = "127.0.0.1"
     POSTGRES_PORT: int = 5432
     POSTGRES_DB: str = "agentsentinel"
     DATABASE_URL: Optional[str] = None
@@ -32,7 +32,7 @@ class Settings(BaseSettings):
         return f"postgresql://{encoded_user}:{encoded_password}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
 
     class Config:
-        env_file = ".env"
+        env_file = (".env", "../.env")
         env_file_encoding = "utf-8"
 
 # Global settings instance

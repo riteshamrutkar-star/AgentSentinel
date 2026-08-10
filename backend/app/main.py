@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.logger import logger
 from app.api.routes import router as api_router
@@ -18,6 +19,15 @@ def create_app() -> FastAPI:
         version=settings.APP_VERSION,
         description="Runtime security layer for AI agent tool call interception and auditing.",
         lifespan=lifespan
+    )
+
+    # Enable CORS for dashboard frontend
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
 
     # Register API routes
