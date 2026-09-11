@@ -10,6 +10,7 @@ from app.api.anomaly import router as anomaly_router
 from app.api.agent import router as agent_router
 from app.api.dashboard import router as dashboard_router
 from app.api.evaluation import router as evaluation_router
+from app.api.risk import router as risk_router
 
 router = APIRouter()
 
@@ -21,6 +22,9 @@ router.include_router(audit_router)
 
 # Include Phase 7 Behavioral Anomaly Router
 router.include_router(anomaly_router)
+
+# Include Phase 0.3 Advanced Risk Intelligence Router
+router.include_router(risk_router)
 
 # Include Phase 8 Real Agent Integration Router
 router.include_router(agent_router)

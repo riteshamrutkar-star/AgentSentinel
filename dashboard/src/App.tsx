@@ -56,6 +56,7 @@ interface EventItem {
   threat_flags_json: string[];
   created_at: string;
   latency_ms?: number;
+  metadata_json?: Record<string, any>;
 }
 
 interface ApprovalItem {
@@ -778,17 +779,33 @@ export function App() {
             {/* BEHAVIOR */}
             <div className="space-y-2 bg-[#0d121f] p-3.5 rounded border border-[#1e2c47]">
               <h3 className="text-[11px] font-bold uppercase tracking-wider text-[#94a3b8] flex items-center gap-1.5">
-                <Layers className="w-3.5 h-3.5 text-[#f59e0b]" /> Behavioral Anomaly Analysis
+                <Layers className="w-3.5 h-3.5 text-[#f59e0b]" /> Behavioral Risk Intelligence
               </h3>
               <div className="space-y-1.5 font-mono text-xs">
                 <div className="flex justify-between items-center">
-                  <span className="text-[#64748b]">Anomaly Score:</span>
+                  <span className="text-[#64748b]">Unified Risk Score:</span>
                   <span className="text-white font-bold">{selectedEvent.anomaly_score?.toFixed(2) || '0.00'}</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-[#64748b]">Anomaly Risk Level:</span>
+                  <span className="text-[#64748b]">Risk Severity Level:</span>
                   {getRiskLevelBadge(selectedEvent.anomaly_score || 0.0)}
                 </div>
+                {selectedEvent.metadata_json?.unified_risk?.primary_detector && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-[#64748b]">Primary Detector:</span>
+                    <span className="text-[#a5b4fc] font-bold">{selectedEvent.metadata_json.unified_risk.primary_detector}</span>
+                  </div>
+                )}
+                {selectedEvent.metadata_json?.unified_risk?.top_risk_factors?.length > 0 && (
+                  <div className="mt-2">
+                    <span className="text-[#64748b] block mb-1">Top Risk Factors:</span>
+                    <ul className="list-disc list-inside text-[10px] text-[#fbbf24] space-y-0.5">
+                      {selectedEvent.metadata_json?.unified_risk?.top_risk_factors?.map((factor: string, idx: number) => (
+                        <li key={idx}>{factor}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 <div className="mt-2">
                   <span className="text-[#64748b] block mb-1">Threat Flags:</span>
                   <div className="flex flex-wrap gap-1.5">

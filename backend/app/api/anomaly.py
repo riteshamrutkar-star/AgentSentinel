@@ -3,9 +3,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.anomaly.detector import default_anomaly_detector
+from app.anomaly.engine import default_risk_engine
 from app.db.crud import list_security_events
 from app.db.models import ModelMetadataModel
 from app.db.session import get_db
+from app.interceptor.normalizer import normalize_tool_call_request
+from app.interceptor.schema import ToolCallRequest
 
 router = APIRouter(prefix="/api/v1/anomaly", tags=["Behavioral Anomaly Engine"])
 
@@ -15,7 +18,8 @@ async def get_session_anomaly_analysis(
     db: Session = Depends(get_db)
 ):
     """
-    Extracts behavioral features and calculates anomaly scores for a specified agent session.
+    Extracts behavioral features and calculates unified multi-signal risk scores
+    for a specified agent session.
     """
     events = list_security_events(db, session_id=session_id, limit=50)
     if not events:
@@ -25,45 +29,95 @@ async def get_session_anomaly_analysis(
         )
 
     last_event = events[0]
-    features = default_anomaly_detector.extractor.extract_features(
-        events=events[1:],
-        current_tool_name=last_event.tool_name,
-        current_role=last_event.role,
+    req = ToolCallRequest(
+        session_id=last_event.session_id,
+        agent_id=last_event.agent_id,
+        user_id=last_event.user_id,
+        tool_name=last_event.tool_name,
+        arguments=last_event.arguments_payload_json or {},
+        role=last_event.role,
+        target_resource=last_event.target_resource,
+        action_type=last_event.action_type,
     )
-    result = default_anomaly_detector.scorer.score_session_features(session_id, features)
+    security_event = normalize_tool_call_request(req)
+
+    unified_risk = default_risk_engine.evaluate_risk(
+        event=security_event,
+        history=events[1:]
+    )
+
+    seq_res = unified_risk.detector_results.get("SequenceAnomalyDetector")
+    matched_pattern = seq_res.metadata.get("matched_pattern") if seq_res else None
 
     return {
         "session_id": session_id,
-        "anomaly_score": result.anomaly_score,
-        "anomaly_level": result.anomaly_level,
-        "flagged": result.flagged,
-        "reason": result.reason,
-        "matched_pattern": result.matched_pattern,
-        "recommended_action": result.recommended_action,
+        "anomaly_score": unified_risk.overall_score,
+        "anomaly_level": unified_risk.severity.value,
+        "flagged": unified_risk.overall_score >= 0.65,
+        "reason": unified_risk.explanation,
+        "matched_pattern": matched_pattern,
+        "primary_detector": unified_risk.primary_detector,
+        "top_risk_factors": unified_risk.top_risk_factors,
+        "evidence": unified_risk.evidence,
+        "recommended_action": unified_risk.recommended_action,
         "total_session_events": len(events),
-        "features": features,
+        "features": unified_risk.detector_contributions,
     }
 
 @router.get("/models", summary="List Anomaly Detector Models Metadata")
 async def list_detector_models(
     db: Session = Depends(get_db)
 ):
-    """Lists registered anomaly detector model metadata records from PostgreSQL."""
+    """Lists registered behavioral detector suite metadata."""
     models = db.query(ModelMetadataModel).all()
     if not models:
-        # Return default active detector info if DB table has no custom model rows yet
+        # Return registered suite of 5 active Phase 0.3 detectors
         return [
             {
                 "model_id": "mdl_statistical_v1",
-                "model_name": "Statistical & Heuristic Behavioral Sequence Scorer",
+                "model_name": "Statistical Baseline Reference Detector",
                 "version": "1.0.0",
                 "threshold": 0.65,
-                "feature_set": [
-                    "sequence_length", "denied_count", "sensitive_action_count",
-                    "burst_count", "ratio_denied", "transition_penalty", "role_mismatch"
-                ],
+                "weight": 0.15,
+                "feature_set": ["denied_count", "sensitive_count", "burst_count", "ratio_denied"],
                 "is_active": True,
-            }
+            },
+            {
+                "model_id": "mdl_sequence_v1",
+                "model_name": "Multi-Step Sequence Anomaly Detector",
+                "version": "1.0.0",
+                "threshold": 0.70,
+                "weight": 0.30,
+                "feature_set": ["probe_to_exfiltrate", "recon_before_destruction", "progressive_escalation"],
+                "is_active": True,
+            },
+            {
+                "model_id": "mdl_burst_v1",
+                "model_name": "Temporal Burst & Call Frequency Detector",
+                "version": "1.0.0",
+                "threshold": 0.60,
+                "weight": 0.15,
+                "feature_set": ["burst_window_seconds", "min_interval", "calls_last_minute", "repeat_tool_count"],
+                "is_active": True,
+            },
+            {
+                "model_id": "mdl_transition_v1",
+                "model_name": "Pairwise Tool Transition Risk Detector",
+                "version": "1.0.0",
+                "threshold": 0.65,
+                "weight": 0.20,
+                "feature_set": ["transition_matrix", "cross_domain_shift", "pairwise_risk_weight"],
+                "is_active": True,
+            },
+            {
+                "model_id": "mdl_role_v1",
+                "model_name": "Role Capability & Scope Mismatch Detector",
+                "version": "1.0.0",
+                "threshold": 0.70,
+                "weight": 0.20,
+                "feature_set": ["role_scope_boundary", "prohibited_tools", "privilege_overreach"],
+                "is_active": True,
+            },
         ]
 
     return [
