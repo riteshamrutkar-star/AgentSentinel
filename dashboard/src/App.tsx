@@ -15,7 +15,9 @@ import {
   Check,
   X,
   Zap,
-  Network
+  Network,
+  Terminal,
+  Box,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -29,6 +31,44 @@ import {
 } from 'recharts';
 
 const API_BASE = 'http://localhost:8000';
+
+interface ToolItem {
+  tool_id: string;
+  name: string;
+  description: string;
+  category: string;
+  required_capability: string;
+  sensitivity: string;
+  risk_level: string;
+  allowed_roles: string[];
+  allowed_agent_capabilities: string[];
+  network_required: boolean;
+  filesystem_required: boolean;
+  process_execution_required: boolean;
+  sandbox_required: boolean;
+  approval_required: boolean;
+  enabled: boolean;
+  version: string;
+  sandbox_profile_name: string;
+  metadata?: Record<string, any>;
+}
+
+interface ExecutionItem {
+  execution_id: string;
+  session_id: string;
+  agent_id: string;
+  tool_name: string;
+  status: string;
+  execution_backend: string;
+  sandbox_profile: string;
+  execution_time_ms: number;
+  exit_code: number;
+  redacted: boolean;
+  detected_secrets: string[];
+  error_message?: string;
+  sanitized_output_preview?: string;
+  created_at: string;
+}
 
 interface AgentIdentityItem {
   agent_id: string;
@@ -119,6 +159,9 @@ export function App() {
   const [approvals, setApprovals] = useState<ApprovalItem[]>([]);
   const [activeSessions, setActiveSessions] = useState<ActiveSessionItem[]>([]);
   const [agents, setAgents] = useState<AgentIdentityItem[]>([]);
+  const [tools, setTools] = useState<ToolItem[]>([]);
+  const [executions, setExecutions] = useState<ExecutionItem[]>([]);
+  const [profiles, setProfiles] = useState<Record<string, any>>({});
   const [chartData, setChartData] = useState<any[]>([]);
   const [riskData, setRiskData] = useState<{ counts: Record<string, number>; percentages: Record<string, number> }>({
     counts: { LOW: 0, MEDIUM: 0, HIGH: 0, CRITICAL: 0 },
@@ -182,6 +225,20 @@ export function App() {
       const resAgents = await fetch(`${API_BASE}/api/v1/agents`);
       if (resAgents.ok) {
         setAgents(await resAgents.json());
+      }
+
+      // 8. Tool Registry & Executions (Phase 0.5)
+      const resTools = await fetch(`${API_BASE}/api/v1/tools`);
+      if (resTools.ok) {
+        setTools(await resTools.json());
+      }
+      const resExec = await fetch(`${API_BASE}/api/v1/executions?limit=15`);
+      if (resExec.ok) {
+        setExecutions(await resExec.json());
+      }
+      const resProf = await fetch(`${API_BASE}/api/v1/sandbox/profiles`);
+      if (resProf.ok) {
+        setProfiles(await resProf.json());
       }
 
     } catch (err) {
@@ -810,6 +867,179 @@ export function App() {
               No agents registered in multi-agent directory.
             </div>
           )}
+        </div>
+      </section>
+
+      {/* ROW 6 — SECURE EXECUTION GATEWAY & TOOL GOVERNANCE (PHASE 0.5) */}
+      <section className="card-panel p-4 space-y-4">
+        <div className="flex items-center justify-between pb-2.5 border-b border-[#1e2c47]">
+          <div className="flex items-center gap-2">
+            <Terminal className="w-4 h-4 text-[#38bdf8]" />
+            <h2 className="text-xs font-bold uppercase tracking-wider text-white">
+              Secure Execution Gateway & Tool Governance ({tools.length})
+            </h2>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#0284c7]/20 text-[#38bdf8] border border-[#0284c7]/40 font-mono font-semibold">
+              Phase 0.5
+            </span>
+          </div>
+          <span className="text-[11px] text-[#64748b] font-mono">Authoritative Tool Registry & Sandbox Isolation</span>
+        </div>
+
+        {/* Top Split: Tool Registry & Sandbox Profiles */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* Col 1 & 2: Authoritative Registered Tools */}
+          <div className="lg:col-span-2 space-y-2.5">
+            <h3 className="text-[11px] font-bold uppercase tracking-wider text-[#94a3b8] flex items-center gap-1.5">
+              <Box className="w-3.5 h-3.5 text-[#38bdf8]" /> Registered Tool Catalog
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 max-h-72 overflow-y-auto pr-1">
+              {tools.length > 0 ? (
+                tools.map((t) => (
+                  <div
+                    key={t.tool_id}
+                    className="p-2.5 bg-[#0d121f] border border-[#1e2c47] rounded hover:border-[#38bdf8]/40 transition space-y-1.5"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="font-mono text-xs font-bold text-white">{t.name}</div>
+                        <div className="text-[10px] text-[#64748b] line-clamp-1">{t.description}</div>
+                      </div>
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono font-bold ${
+                        t.enabled ? 'bg-[#10b981]/20 text-[#34d399]' : 'bg-[#f43f5e]/20 text-[#fb7185]'
+                      }`}>
+                        {t.enabled ? 'ENABLED' : 'DISABLED'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-[10px] font-mono">
+                      <span className="px-1.5 py-0.5 rounded bg-[#1e293b] text-[#94a3b8]">
+                        Cat: {t.category}
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded bg-[#1e293b] text-[#38bdf8]">
+                        Profile: {t.sandbox_profile_name}
+                      </span>
+                      <span className={`px-1.5 py-0.5 rounded ${
+                        t.risk_level === 'CRITICAL' ? 'bg-[#f43f5e]/20 text-[#fb7185]' :
+                        t.risk_level === 'HIGH' ? 'bg-[#f97316]/20 text-[#fb923c]' :
+                        t.risk_level === 'MEDIUM' ? 'bg-[#f59e0b]/20 text-[#fbbf24]' :
+                        'bg-[#10b981]/20 text-[#34d399]'
+                      }`}>
+                        {t.risk_level}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-[#64748b] font-mono">
+                      Required Cap: <span className="text-[#a5b4fc]">{t.required_capability}</span>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="col-span-full p-4 text-center text-[#64748b] text-xs font-mono bg-[#0d121f] rounded">
+                  No registered tools found in registry.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Col 3: Sandbox Profiles */}
+          <div className="space-y-2.5">
+            <h3 className="text-[11px] font-bold uppercase tracking-wider text-[#94a3b8] flex items-center gap-1.5">
+              <Lock className="w-3.5 h-3.5 text-[#a855f7]" /> Sandbox Isolation Profiles
+            </h3>
+            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+              {Object.keys(profiles).length > 0 ? (
+                Object.entries(profiles).map(([pName, pConfig]: [string, any]) => (
+                  <div key={pName} className="p-2 bg-[#0d121f] border border-[#1e2c47] rounded text-xs space-y-1 font-mono">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-[#c084fc]">{pName}</span>
+                      <span className="text-[10px] text-[#64748b]">{pConfig.max_timeout_seconds}s max</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1 text-[9px]">
+                      <span className={`px-1 rounded ${pConfig.network_allowed ? 'bg-[#10b981]/20 text-[#34d399]' : 'bg-[#f43f5e]/20 text-[#fb7185]'}`}>
+                        Network: {pConfig.network_allowed ? 'ON' : 'OFF'}
+                      </span>
+                      <span className={`px-1 rounded ${pConfig.process_execution_allowed ? 'bg-[#f59e0b]/20 text-[#fbbf24]' : 'bg-[#10b981]/20 text-[#34d399]'}`}>
+                        Process: {pConfig.process_execution_allowed ? 'ALLOWED' : 'LOCKED'}
+                      </span>
+                      {pConfig.docker_image && (
+                        <span className="px-1 rounded bg-[#38bdf8]/20 text-[#38bdf8]">
+                          Docker
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="p-3 text-center text-[#64748b] text-xs font-mono bg-[#0d121f] rounded">
+                  Standard profiles active.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom Split: Audited Tool Executions */}
+        <div className="space-y-2 pt-2 border-t border-[#1e2c47]">
+          <h3 className="text-[11px] font-bold uppercase tracking-wider text-[#94a3b8] flex items-center gap-1.5">
+            <Activity className="w-3.5 h-3.5 text-[#10b981]" /> Audited Tool Executions ({executions.length})
+          </h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-[#0d121f] text-[#94a3b8] uppercase font-mono border-b border-[#1e2c47]">
+                <tr>
+                  <th className="py-2 px-2.5">TIME</th>
+                  <th className="py-2 px-2.5">EXECUTION ID</th>
+                  <th className="py-2 px-2.5">AGENT</th>
+                  <th className="py-2 px-2.5">TOOL</th>
+                  <th className="py-2 px-2.5">BACKEND</th>
+                  <th className="py-2 px-2.5">PROFILE</th>
+                  <th className="py-2 px-2.5">SECRETS</th>
+                  <th className="py-2 px-2.5">LATENCY</th>
+                  <th className="py-2 px-2.5 text-right">STATUS</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#1e2c47] font-mono">
+                {executions.length > 0 ? (
+                  executions.map((ex) => (
+                    <tr key={ex.execution_id} className="hover:bg-[#121929] transition">
+                      <td className="py-2 px-2.5 text-[#64748b]">
+                        {ex.created_at ? new Date(ex.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Now'}
+                      </td>
+                      <td className="py-2 px-2.5 text-[#38bdf8] font-semibold">{ex.execution_id}</td>
+                      <td className="py-2 px-2.5 text-[#cbd5e1]">{ex.agent_id}</td>
+                      <td className="py-2 px-2.5 text-white font-bold">{ex.tool_name}</td>
+                      <td className="py-2 px-2.5 text-[#a5b4fc] text-[10px]">{ex.execution_backend}</td>
+                      <td className="py-2 px-2.5 text-[#94a3b8] text-[10px]">{ex.sandbox_profile}</td>
+                      <td className="py-2 px-2.5">
+                        {ex.redacted ? (
+                          <span className="px-1.5 py-0.5 rounded bg-[#f43f5e]/20 text-[#fb7185] border border-[#f43f5e]/40 text-[9px] font-bold">
+                            REDACTED ({ex.detected_secrets?.length || 1})
+                          </span>
+                        ) : (
+                          <span className="text-[#64748b] text-[10px]">Clean</span>
+                        )}
+                      </td>
+                      <td className="py-2 px-2.5 text-[#34d399]">{ex.execution_time_ms.toFixed(1)} ms</td>
+                      <td className="py-2 px-2.5 text-right font-bold">
+                        <span className={`px-2 py-0.5 rounded text-[10px] ${
+                          ex.status === 'COMPLETED' ? 'bg-[#10b981]/20 text-[#34d399]' :
+                          ex.status === 'BLOCKED' ? 'bg-[#f43f5e]/20 text-[#fb7185]' :
+                          ex.status === 'TIMEOUT' ? 'bg-[#f97316]/20 text-[#fb923c]' :
+                          'bg-[#f59e0b]/20 text-[#fbbf24]'
+                        }`}>
+                          {ex.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={9} className="py-4 text-center text-[#64748b] text-xs font-mono">
+                      No tool executions recorded yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
 

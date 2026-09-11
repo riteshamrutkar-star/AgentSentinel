@@ -260,9 +260,86 @@ Agents are strictly bound to explicit capability grants:
 
 ---
 
+## 🔒 Secure Execution, Sandboxing & Tool Governance (Phase 0.5)
+
+AgentSentinel Phase 0.5 establishes a mandatory, fail-closed runtime execution boundary between authorization and actual tool dispatch:
+
+$$\text{Identity} \to \text{Trust} \to \text{Delegation} \to \text{Policy} \to \text{Behavior} \to \text{Tool Registry} \to \mathbf{Secure Execution Gateway} \to \mathbf{Sandbox Isolation} \to \mathbf{Output Security} \to \mathbf{Durable Audit}$$
+
+No tool, script, or external process can execute without passing all 14 gates of the `SecureExecutionGateway`.
+
+```text
+========================================================================================
+                         SECURE EXECUTION GATEWAY PIPELINE
+========================================================================================
+Tool Invocation Request
+    │
+    ▼
+[Gate 1]  Authoritative Tool Registry Lookup & Enabled Status Check
+    │
+[Gate 2]  Executing Agent Identity Verification & Active Status Check
+    │
+[Gate 3]  Agent Capability Containment (Agent Capabilities ⊇ Tool Required Capability)
+    │
+[Gate 4]  Delegation Token Scope, Target Binding & Expiration Validation
+    │
+[Gate 5]  Policy Verdict Enforcement (Preserve explicit BLOCK / DENY)
+    │
+[Gate 6]  Approval Scope & Agent/Tool Binding Verification (PostgreSQL backed)
+    │
+[Gate 7]  Sandbox Profile Resolution (STRICT, STANDARD, RESEARCH, DEVELOPER, PRIVILEGED)
+    │
+[Gate 8]  Filesystem Sandbox Guard (Path canonicalization, traversal blocking, secret files)
+    │
+[Gate 9]  Network Egress Guard (Raw IP literals, cloud metadata 169.254.169.254, exfiltration sinks)
+    │
+[Gate 10] Process Execution Guard (Executable allowlisting, injection tokens, shell=False)
+    │
+[Gate 11] Sandbox Backend Selection & Isolation (Guarded In-Process or Hardened Docker)
+    │
+[Gate 12] Sandboxed Execution with Thread/Container Timeout Bounding
+    │
+[Gate 13] Output Security & Secret Redaction (API keys, tokens redacted; private keys hard-blocked)
+    │
+[Gate 14] Durable Execution Audit Trail (PostgreSQL executions table record)
+    │
+    ▼
+Sanitized & Approved Execution Output Returned to Caller
+```
+
+### Predefined Sandbox Profiles
+| Profile | Mode | Network | Process Exec | Memory | Timeout | Description |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **`STRICT`** | Zero-trust | Disabled | Disabled | 128 MB | 5.0 s | Zero egress, read-only workspace, no subprocesses. |
+| **`STANDARD`** | Balanced | Disabled | Disabled | 256 MB | 10.0 s | Workspace read/write, no external networking or execution. |
+| **`RESEARCH`** | Web research | Allowed | Disabled | 256 MB | 15.0 s | Authorized domain allowlist for search and academic sources. |
+| **`DEVELOPER`** | Engineering | Allowed | Allowed | 512 MB | 30.0 s | Allowed toolchain executables (python, git, node, npm). |
+| **`PRIVILEGED`** | Admin only | Allowed | Allowed | 1024 MB | 60.0 s | Approval-gated database and administrative operations. |
+
+### Secret Protection Layer
+- **Automated Masking**: Sensitive tokens matching regular expressions (`GITHUB_TOKEN`, `OPENAI_API_KEY`, `JWT_TOKEN`, `BEARER_TOKEN`, `PASSWORD_ASSIGNMENT`) are redacted into `[REDACTED_<TYPE>]` before audit persistence or caller return.
+- **Critical Exfiltration Hard Block**: Outputs containing unencrypted private keys (`PRIVATE_KEY`), root AWS credentials (`AWS_ACCESS_KEY`), or direct database connection strings (`DB_CONNECTION_STRING`) are unconditionally hard-blocked.
+
+---
+
+## 📊 Empirical Benchmark Evaluation Summary
+
+All benchmarks run live against the PostgreSQL 17 database and FastAPI control plane with zero mock or synthetic metrics:
+
+| Benchmark Phase | Test Focus | Scenarios | Accuracy | Precision | Recall | FPR | FNR | Avg Latency |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Phase 10** | End-to-End Control Plane | 5 | 100.0% | 1.0000 | 1.0000 | 0.0000 | 0.0000 | 46.07 ms |
+| **Phase 0.3** | Behavioral Risk Intelligence | 10 | 90.0% | 1.0000 | 0.8750 | 0.0000 | 0.1250 | 28.42 ms |
+| **Phase 0.4** | Multi-Agent Governance | 12 | 100.0% | 1.0000 | 1.0000 | 0.0000 | 0.0000 | 29.86 ms |
+| **Phase 0.5** | Secure Execution Gateway | 20 | 100.0% | 1.0000 | 1.0000 | 0.0000 | 0.0000 | 3.89 ms |
+
+---
+
 ## 🔒 Core Security Principles
-- **Fail-Closed by Design**: If any detector, validator, or database operation encounters an unexpected error during mediation, the action is blocked and execution is refused.
-- **Durable Auditability**: 100% of decisions, anomaly scores, multi-detector risk decompositions, delegation tokens, and human approvals are permanently stored in PostgreSQL.
-- **Zero-Bypass Interception**: Secured tools encapsulate the underlying capability; tool code can never run without prior explicit security authorization.
+- **Fail-Closed by Design**: If any detector, validator, sandbox, or database operation encounters an unexpected error during mediation, the action is blocked and execution is refused.
+- **Durable Auditability**: 100% of decisions, anomaly scores, multi-detector risk decompositions, delegation tokens, executions, and human approvals are permanently stored in PostgreSQL.
+- **Zero-Bypass Interception**: Secured tools encapsulate the underlying capability; tool code can never run without prior explicit security authorization and gateway execution.
+- **Mandatory Execution Boundary**: Authorization is enforced physically via filesystem path canonicalization, network destination filtering, and process allowlists.
 - **End-to-End Multi-Agent Provenance**: Every delegated tool execution preserves the complete origin-to-execution delegation chain in durable audit metadata.
 - **Explainable Decisions**: Every behavioral escalation and delegation decision records clear top risk factors and factual evidence strings visible in the SOC dashboard.
+

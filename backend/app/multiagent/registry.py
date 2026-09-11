@@ -48,6 +48,22 @@ class AgentRegistry:
                 metadata={"scope": "research_workflow_orchestration"},
             ),
             AgentIdentity(
+                agent_id="agent_research_lead",
+                name="Research Lead Agent",
+                role="research_coordinator",
+                agent_type="coordinator",
+                owner="system",
+                capabilities=[
+                    AgentCapability.SEARCH,
+                    AgentCapability.FILE_READ,
+                    AgentCapability.DELEGATION,
+                ],
+                trust_level=TrustLevel.TRUSTED,
+                trust_score=multiagent_config.DEFAULT_TRUST_SCORES[TrustLevel.TRUSTED],
+                status=AgentStatus.ACTIVE,
+                metadata={"scope": "research_workflow_orchestration"},
+            ),
+            AgentIdentity(
                 agent_id="agent_research_worker",
                 name="Research Worker Agent",
                 role="research_worker",

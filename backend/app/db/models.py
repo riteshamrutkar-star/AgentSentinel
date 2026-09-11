@@ -185,3 +185,24 @@ class DelegationModel(Base):
     metadata_json = Column(JSON, default=dict)
     created_at = Column(DateTime(timezone=True), default=utc_now)
 
+
+class ExecutionModel(Base):
+    """Stores execution audit trail, sandbox profile, duration, redactions, and outcomes."""
+    __tablename__ = "executions"
+
+    execution_id = Column(String(64), primary_key=True, index=True)
+    session_id = Column(String(64), nullable=False, index=True)
+    agent_id = Column(String(64), nullable=False, index=True)
+    tool_name = Column(String(64), nullable=False, index=True)
+    status = Column(String(32), default="COMPLETED", index=True)
+    execution_backend = Column(String(32), default="IN_PROCESS_GUARDED")
+    sandbox_profile = Column(String(32), default="STANDARD")
+    execution_time_ms = Column(Float, default=0.0)
+    exit_code = Column(Integer, default=0)
+    redacted = Column(Boolean, default=False)
+    detected_secrets_json = Column(JSON, default=list)
+    error_message = Column(Text, nullable=True)
+    sanitized_output_preview = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+
+

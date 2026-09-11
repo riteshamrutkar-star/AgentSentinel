@@ -5,6 +5,7 @@ from app.db.models import (
     ApprovalModel,
     DelegationModel,
     EventModel,
+    ExecutionModel,
     ModelMetadataModel,
     PolicyModel,
     SessionModel,
@@ -25,6 +26,9 @@ from app.db.crud import (
     get_delegation_by_id,
     list_delegations,
     revoke_delegation,
+    create_execution_record,
+    get_execution_by_id,
+    list_executions,
 )
 
 __all__ = [
@@ -34,6 +38,7 @@ __all__ = [
     "get_db",
     "SessionModel",
     "EventModel",
+    "ExecutionModel",
     "PolicyModel",
     "ApprovalModel",
     "ModelMetadataModel",
@@ -54,5 +59,8 @@ __all__ = [
     "get_delegation_by_id",
     "list_delegations",
     "revoke_delegation",
+    "create_execution_record",
+    "get_execution_by_id",
+    "list_executions",
 ]
 

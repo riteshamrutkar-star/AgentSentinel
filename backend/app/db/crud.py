@@ -7,6 +7,7 @@ from app.db.models import (
     ApprovalModel,
     DelegationModel,
     EventModel,
+    ExecutionModel,
     ModelMetadataModel,
     PolicyModel,
     SessionModel,
@@ -352,4 +353,76 @@ def revoke_delegation(db: Session, delegation_id: str) -> bool:
         db.rollback()
         logger.error(f"Failed to revoke delegation '{delegation_id}': {e}", exc_info=True)
         raise
+
+
+# --- Execution Audit CRUD ---
+
+def create_execution_record(
+    db: Session,
+    execution_id: str,
+    session_id: str,
+    agent_id: str,
+    tool_name: str,
+    status: str = "COMPLETED",
+    execution_backend: str = "IN_PROCESS_GUARDED",
+    sandbox_profile: str = "STANDARD",
+    execution_time_ms: float = 0.0,
+    exit_code: int = 0,
+    redacted: bool = False,
+    detected_secrets: Optional[List[str]] = None,
+    error_message: Optional[str] = None,
+    sanitized_output_preview: Optional[str] = None,
+) -> ExecutionModel:
+    """Records a secure tool execution attempt with runtime metrics and redactions."""
+    record = ExecutionModel(
+        execution_id=execution_id,
+        session_id=session_id,
+        agent_id=agent_id,
+        tool_name=tool_name,
+        status=status,
+        execution_backend=execution_backend,
+        sandbox_profile=sandbox_profile,
+        execution_time_ms=execution_time_ms,
+        exit_code=exit_code,
+        redacted=redacted,
+        detected_secrets_json=detected_secrets or [],
+        error_message=error_message,
+        sanitized_output_preview=sanitized_output_preview,
+    )
+    try:
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+        return record
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to record execution '{execution_id}': {e}", exc_info=True)
+        raise
+
+
+def get_execution_by_id(db: Session, execution_id: str) -> Optional[ExecutionModel]:
+    """Retrieves an execution audit record by execution_id."""
+    return db.query(ExecutionModel).filter(ExecutionModel.execution_id == execution_id).first()
+
+
+def list_executions(
+    db: Session,
+    session_id: Optional[str] = None,
+    agent_id: Optional[str] = None,
+    tool_name: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 100,
+) -> List[ExecutionModel]:
+    """Lists execution records with optional filtering."""
+    query = db.query(ExecutionModel)
+    if session_id:
+        query = query.filter(ExecutionModel.session_id == session_id)
+    if agent_id:
+        query = query.filter(ExecutionModel.agent_id == agent_id)
+    if tool_name:
+        query = query.filter(ExecutionModel.tool_name == tool_name)
+    if status:
+        query = query.filter(ExecutionModel.status == status)
+    return query.order_by(ExecutionModel.created_at.desc()).limit(limit).all()
+
 

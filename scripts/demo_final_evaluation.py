@@ -123,7 +123,7 @@ def main():
     t0 = time.time()
     res2 = runner_2.execute_tool_action(
         tool_name="read_workspace_file",
-        tool_input={"filepath": "C:\\Project\\src\\main.py"},
+        tool_input={"filepath": "src\\main.py"},
         task_summary="Read project source code",
         db=db,
     )
@@ -148,7 +148,7 @@ def main():
             role="software_engineer",
             tool_name="read_workspace_file",
             action_type="READ",
-            target_resource="C:\\Project\\src\\main.py",
+            target_resource="src\\main.py",
             policy_result=res2["verdict"],
             anomaly_score=evt2.anomaly_score,
             anomaly_level=lvl2,

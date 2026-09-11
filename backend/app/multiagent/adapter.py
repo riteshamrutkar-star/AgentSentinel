@@ -4,6 +4,7 @@ Provides an extensible adapter protocol for integrating multi-agent frameworks
 (LangChain, CrewAI, AutoGen, custom swarms) with AgentSentinel multi-agent governance.
 """
 
+import uuid
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
@@ -155,20 +156,48 @@ class LangChainMultiAgentAdapter(AgentFrameworkAdapter):
         # 3. Mediate through proxy
         interceptor_response = intercept_tool_call(req, db)
 
-        # 4. Enforce execution outcome
+        # 4. Enforce execution outcome through SecureExecutionGateway
         if interceptor_response.decision == "ALLOW" and interceptor_response.execution_allowed:
-            try:
-                output = secured_tool.func(**tool_input)
-            except Exception as e:
-                output = f"Tool Execution Error: {str(e)}"
+            from app.execution.models import ExecutionContext, ExecutionState
+            from app.execution.gateway import default_execution_gateway
+            exec_ctx = ExecutionContext(
+                execution_id=f"exec_{uuid.uuid4().hex[:10]}",
+                agent_id=executing_agent_id,
+                delegation_id=delegation_id,
+                session_id=session_id,
+                tool_id=tool_name,
+                tool_name=tool_name,
+                arguments=tool_input,
+                capabilities=agent.capabilities if agent else [],
+                resource_scope=resource,
+                policy_decision=interceptor_response.decision,
+                approval_id=interceptor_response.event_id,
+                approval_event_id=interceptor_response.event_id,
+                timeout_seconds=10.0,
+            )
 
-            return {
-                "status": "SUCCESS",
-                "verdict": "ALLOW",
-                "execution_allowed": True,
-                "output": output,
-                "interceptor_response": interceptor_response.model_dump(),
-            }
+            exec_res = default_execution_gateway.execute(exec_ctx, handler=secured_tool.func, db=db)
+
+            if exec_res.status == ExecutionState.COMPLETED:
+                return {
+                    "status": "SUCCESS",
+                    "verdict": "ALLOW",
+                    "execution_allowed": True,
+                    "output": exec_res.sanitized_output,
+                    "interceptor_response": interceptor_response.model_dump(),
+                    "execution_id": exec_res.execution_id,
+                    "execution_time_ms": exec_res.execution_time_ms,
+                    "execution_backend": exec_res.execution_backend.value,
+                }
+            else:
+                return {
+                    "status": "BLOCKED",
+                    "verdict": "BLOCK",
+                    "execution_allowed": False,
+                    "output": f"SECURITY VERDICT: BLOCK. Action '{tool_name}' failed execution sandbox check. Reason: {exec_res.error_message or exec_res.sanitized_output}",
+                    "interceptor_response": interceptor_response.model_dump(),
+                    "execution_id": exec_res.execution_id,
+                }
         else:
             return {
                 "status": "BLOCKED" if interceptor_response.decision == "BLOCK" else "PAUSED_FOR_APPROVAL",

@@ -1,7 +1,18 @@
+import uuid
 from typing import Any, Callable, Dict, Optional
 from sqlalchemy.orm import Session
 from app.interceptor.proxy import intercept_tool_call
 from app.interceptor.schema import InterceptorResponse, ToolCallRequest
+from app.execution import (
+    default_execution_gateway,
+    default_tool_registry,
+    ExecutionContext,
+    ExecutionState,
+    ToolCategory,
+    ToolDefinition,
+)
+from app.multiagent.models import AgentCapability, AgentIdentity, AgentStatus, TrustLevel
+from app.multiagent.registry import default_agent_registry
 
 # --- Base Underlying Tool Functions ---
 
@@ -47,6 +58,33 @@ class SecuredTool:
         self.description = description
         self.action_type = action_type
         self.target_resource = target_resource
+
+        # Ensure tool is registered in authoritative ToolRegistry
+        existing = default_tool_registry.get_tool(name)
+        if not existing:
+            cat_map = {
+                "NETWORK": (ToolCategory.NETWORK, AgentCapability.SEARCH, "RESEARCH"),
+                "READ": (ToolCategory.FILESYSTEM, AgentCapability.FILE_READ, "STANDARD"),
+                "WRITE": (ToolCategory.FILESYSTEM, AgentCapability.FILE_WRITE, "STANDARD"),
+                "DATABASE": (ToolCategory.DATABASE, AgentCapability.DATABASE_WRITE, "PRIVILEGED"),
+                "PROCESS": (ToolCategory.PROCESS, AgentCapability.PROCESS_EXECUTION, "DEVELOPER"),
+                "SHELL": (ToolCategory.PROCESS, AgentCapability.PROCESS_EXECUTION, "DEVELOPER"),
+            }
+            cat, cap, prof = cat_map.get(action_type, (ToolCategory.CUSTOM, AgentCapability.SEARCH, "STANDARD"))
+            tool_def = ToolDefinition(
+                tool_id=name,
+                name=name,
+                description=description,
+                category=cat,
+                required_capability=cap,
+                allowed_roles=["research_assistant", "research_coordinator", "research_worker", "code_assistant", "database_admin", "developer", "default_agent"],
+                allowed_agent_capabilities=[cap],
+                network_required=(action_type == "NETWORK"),
+                filesystem_required=(action_type in ("READ", "WRITE")),
+                process_execution_required=(action_type in ("PROCESS", "SHELL")),
+                sandbox_profile_name=prof,
+            )
+            default_tool_registry.register_tool(tool_def, handler=func)
 
     def invoke(
         self,
@@ -95,20 +133,70 @@ class SecuredTool:
                 "interceptor_response": None,
             }
 
-        # 3. Enforce execution control verdict
+        # 3. Enforce execution control verdict via mandatory SecureExecutionGateway
         if response.decision == "ALLOW" and response.execution_allowed:
-            try:
-                output = self.func(**tool_input)
-            except Exception as e:
-                output = f"Tool Execution Error: {str(e)}"
+            # Ensure agent is registered in AgentRegistry
+            agent = default_agent_registry.get_agent(agent_id, db=db)
+            if not agent:
+                agent = AgentIdentity(
+                    agent_id=agent_id,
+                    name=f"Agent-{agent_id}",
+                    role=role,
+                    agent_type="worker",
+                    owner="system",
+                    capabilities=[
+                        AgentCapability.SEARCH,
+                        AgentCapability.FILE_READ,
+                        AgentCapability.FILE_WRITE,
+                        AgentCapability.DATABASE_READ,
+                        AgentCapability.DATABASE_WRITE,
+                        AgentCapability.PROCESS_EXECUTION,
+                        AgentCapability.DELEGATION,
+                    ],
+                    trust_level=TrustLevel.STANDARD,
+                    trust_score=0.75,
+                    status=AgentStatus.ACTIVE,
+                )
+                default_agent_registry.register_agent(agent, db=db)
 
-            return {
-                "status": "SUCCESS",
-                "verdict": response.decision,
-                "execution_allowed": True,
-                "output": output,
-                "interceptor_response": response.model_dump(),
-            }
+            exec_ctx = ExecutionContext(
+                execution_id=f"exec_{uuid.uuid4().hex[:10]}",
+                agent_id=agent_id,
+                session_id=session_id,
+                tool_id=self.name,
+                tool_name=self.name,
+                arguments=tool_input,
+                capabilities=agent.capabilities if agent else [],
+                resource_scope=resource,
+                policy_decision=response.decision,
+                approval_id=response.event_id,
+                approval_event_id=response.event_id,
+                timeout_seconds=10.0,
+            )
+
+            # Route through SecureExecutionGateway
+            exec_res = default_execution_gateway.execute(exec_ctx, handler=self.func, db=db)
+
+            if exec_res.status == ExecutionState.COMPLETED:
+                return {
+                    "status": "SUCCESS",
+                    "verdict": response.decision,
+                    "execution_allowed": True,
+                    "output": exec_res.sanitized_output,
+                    "interceptor_response": response.model_dump(),
+                    "execution_id": exec_res.execution_id,
+                    "execution_time_ms": exec_res.execution_time_ms,
+                    "execution_backend": exec_res.execution_backend.value,
+                }
+            else:
+                return {
+                    "status": "BLOCKED",
+                    "verdict": "BLOCK",
+                    "execution_allowed": False,
+                    "output": f"SECURITY VERDICT: BLOCK. Action '{self.name}' failed execution sandbox check. Reason: {exec_res.error_message or exec_res.sanitized_output}",
+                    "interceptor_response": response.model_dump(),
+                    "execution_id": exec_res.execution_id,
+                }
 
         elif response.decision == "REQUIRE_APPROVAL":
             return {
