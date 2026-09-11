@@ -1,5 +1,6 @@
 from typing import List, Optional
 from sqlalchemy.orm import Session
+from app.core.logger import logger
 from app.db.models import ApprovalModel, EventModel, ModelMetadataModel, PolicyModel, SessionModel
 from app.events.model import SecurityEvent
 
@@ -13,7 +14,7 @@ def get_or_create_session(
     role: str = "default_agent",
     framework_name: str = "LangChain",
 ) -> SessionModel:
-    """Retrieves existing session or creates a new session record."""
+    """Retrieves existing session or creates a new session record with rollback protection."""
     db_session = db.query(SessionModel).filter(SessionModel.session_id == session_id).first()
     if not db_session:
         db_session = SessionModel(
@@ -24,15 +25,20 @@ def get_or_create_session(
             framework_name=framework_name,
             status="ACTIVE",
         )
-        db.add(db_session)
-        db.commit()
-        db.refresh(db_session)
+        try:
+            db.add(db_session)
+            db.commit()
+            db.refresh(db_session)
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Failed to create session record '{session_id}': {e}", exc_info=True)
+            raise
     return db_session
 
 # --- Event CRUD ---
 
 def save_security_event(db: Session, security_event: SecurityEvent) -> EventModel:
-    """Persists a Phase 3A SecurityEvent model into the database."""
+    """Persists a Phase 3A SecurityEvent model into PostgreSQL with transaction rollback safety."""
     # Ensure parent session exists
     get_or_create_session(
         db=db,
@@ -95,10 +101,15 @@ def save_security_event(db: Session, security_event: SecurityEvent) -> EventMode
         raw_payload_json=schema_dict,
     )
 
-    db.add(db_event)
-    db.commit()
-    db.refresh(db_event)
-    return db_event
+    try:
+        db.add(db_event)
+        db.commit()
+        db.refresh(db_event)
+        return db_event
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to save security event '{security_event.identity.event_id}': {e}", exc_info=True)
+        raise
 
 def get_security_event_by_id(db: Session, event_id: str) -> Optional[EventModel]:
     """Retrieves a single security event record by event_id."""
@@ -129,7 +140,7 @@ def create_policy(
     description: str = "",
     priority: int = 100,
 ) -> PolicyModel:
-    """Creates a new security policy rule."""
+    """Creates a new security policy rule with transaction rollback safety."""
     policy = PolicyModel(
         policy_name=policy_name,
         effect=effect,
@@ -141,10 +152,15 @@ def create_policy(
         priority=priority,
         is_active=True,
     )
-    db.add(policy)
-    db.commit()
-    db.refresh(policy)
-    return policy
+    try:
+        db.add(policy)
+        db.commit()
+        db.refresh(policy)
+        return policy
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to create policy '{policy_name}': {e}", exc_info=True)
+        raise
 
 def list_active_policies(db: Session) -> List[PolicyModel]:
     """Retrieves all active security policies ordered by priority."""

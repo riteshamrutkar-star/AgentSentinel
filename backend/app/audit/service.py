@@ -36,7 +36,7 @@ def record_audit_entry(db: Session, security_event: SecurityEvent) -> EventModel
 
 def approve_action(db: Session, event_id: str, reviewer: str, notes: str = "") -> EventModel:
     """
-    Approves a pending action request.
+    Approves a pending action request with rollback protection.
     Updates ApprovalModel and EventModel in PostgreSQL, enabling tool execution.
     """
     event = get_security_event_by_id(db, event_id)
@@ -53,15 +53,20 @@ def approve_action(db: Session, event_id: str, reviewer: str, notes: str = "") -
     event.reviewer = reviewer
     event.decision_reason = f"Human approval granted by {reviewer}. Notes: {notes or 'None'}"
 
-    db.commit()
-    db.refresh(event)
+    try:
+        db.commit()
+        db.refresh(event)
+    except Exception as e:
+        db.rollback()
+        audit_logger.error(f"Failed to commit approval for event '{event_id}': {e}", exc_info=True)
+        raise
 
     audit_logger.info(f"APPROVAL GRANTED | Event={event_id} | Reviewer={reviewer} | Notes='{notes}'")
     return event
 
 def reject_action(db: Session, event_id: str, reviewer: str, notes: str = "") -> EventModel:
     """
-    Rejects a pending action request.
+    Rejects a pending action request with rollback protection.
     Updates ApprovalModel and EventModel in PostgreSQL, keeping execution blocked.
     """
     event = get_security_event_by_id(db, event_id)
@@ -78,8 +83,13 @@ def reject_action(db: Session, event_id: str, reviewer: str, notes: str = "") ->
     event.reviewer = reviewer
     event.decision_reason = f"Human approval rejected by {reviewer}. Notes: {notes or 'None'}"
 
-    db.commit()
-    db.refresh(event)
+    try:
+        db.commit()
+        db.refresh(event)
+    except Exception as e:
+        db.rollback()
+        audit_logger.error(f"Failed to commit rejection for event '{event_id}': {e}", exc_info=True)
+        raise
 
     audit_logger.info(f"APPROVAL REJECTED | Event={event_id} | Reviewer={reviewer} | Notes='{notes}'")
     return event

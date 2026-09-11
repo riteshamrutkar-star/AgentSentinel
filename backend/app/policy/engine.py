@@ -1,5 +1,6 @@
 import re
 from typing import List, Optional
+from app.core.logger import logger
 from app.events.factory import apply_decision, enrich_event_security
 from app.events.model import SecurityEvent
 from app.events.schema import ApprovalStatus, PolicyResult, SensitivityLevel
@@ -10,6 +11,7 @@ class PolicyEngine:
     """
     RBAC / ABAC / Security Policy Engine for AgentSentinel v0.1.
     Evaluates intercepted tool call security events against explicit, priority-ordered policy rules.
+    Fails closed on any corrupted or unhandled evaluation states.
     """
 
     def __init__(self, custom_rules: Optional[List[PolicyRule]] = None):
@@ -26,7 +28,7 @@ class PolicyEngine:
 
         # Split pipe-delimited patterns (e.g. "read_file|write_file|list_dir")
         sub_patterns = pattern.split("|")
-        val_lower = value.lower().strip()
+        val_lower = str(value).lower().strip()
 
         for sub in sub_patterns:
             sub = sub.strip().lower()
@@ -44,8 +46,8 @@ class PolicyEngine:
         if not pattern or pattern == "*":
             return True
 
-        args_str = str(arguments_payload).lower().replace("\\", "/")
-        res_str = target_resource.lower().replace("\\", "/")
+        args_str = str(arguments_payload or {}).lower().replace("\\", "/")
+        res_str = str(target_resource or "").lower().replace("\\", "/")
 
         sub_patterns = pattern.split("|")
         for sub in sub_patterns:
@@ -63,122 +65,149 @@ class PolicyEngine:
         """
         Evaluates a normalized SecurityEvent against registered policy rules in priority order.
         Returns a structured PolicyEvaluationResult and updates the event's decision context.
+        SECURITY GUARANTEE: Fails closed on any unexpected exception.
         """
-        role = security_event.identity.role
-        tool_name = security_event.tool_action.tool_name
-        action_type = security_event.tool_action.action_type.value if hasattr(security_event.tool_action.action_type, 'value') else str(security_event.tool_action.action_type)
-        target_resource = security_event.tool_action.target_resource
-        arguments = security_event.tool_action.arguments_payload
+        try:
+            role = security_event.identity.role
+            tool_name = security_event.tool_action.tool_name
+            action_type = security_event.tool_action.action_type.value if hasattr(security_event.tool_action.action_type, 'value') else str(security_event.tool_action.action_type)
+            target_resource = security_event.tool_action.target_resource
+            arguments = security_event.tool_action.arguments_payload
 
-        matched_rule: Optional[PolicyRule] = None
+            matched_rule: Optional[PolicyRule] = None
 
-        for rule in self.rules:
-            # Check Role match
-            if not self._matches_pattern(rule.role, role):
-                continue
-            # Check Tool Name match
-            if not self._matches_pattern(rule.tool_name, tool_name):
-                continue
-            # Check Action Type match
-            if not self._matches_pattern(rule.action_type, action_type):
-                continue
-            # Check Resource Pattern match
-            if not self._matches_resource_pattern(rule.resource_pattern, target_resource, arguments):
-                continue
+            for rule in self.rules:
+                # Check Role match
+                if not self._matches_pattern(rule.role, role):
+                    continue
+                # Check Tool Name match
+                if not self._matches_pattern(rule.tool_name, tool_name):
+                    continue
+                # Check Action Type match
+                if not self._matches_pattern(rule.action_type, action_type):
+                    continue
+                # Check Resource Pattern match
+                if not self._matches_resource_pattern(rule.resource_pattern, target_resource, arguments):
+                    continue
 
-            # Found matching rule!
-            matched_rule = rule
-            break
+                # Found matching rule!
+                matched_rule = rule
+                break
 
-        # If no rule matched, use safe default
-        if not matched_rule:
-            matched_rule = PolicyRule(
-                rule_id="SEC_FALLBACK_ALLOW",
-                rule_name="Fallback Standard Permission",
-                rule_type="SECURITY",
-                effect=RuleEffect.ALLOW,
-                priority=9999,
-                description="Default fallback permission when no explicit policy rule triggers.",
+            # If no rule matched, use safe default
+            if not matched_rule:
+                matched_rule = PolicyRule(
+                    rule_id="SEC_FALLBACK_ALLOW",
+                    rule_name="Fallback Standard Permission",
+                    rule_type="SECURITY",
+                    effect=RuleEffect.ALLOW,
+                    priority=9999,
+                    description="Default fallback permission when no explicit policy rule triggers.",
+                )
+
+            # Process verdict based on matched rule effect
+            if matched_rule.effect == RuleEffect.BLOCK:
+                verdict = "BLOCK"
+                policy_res = PolicyResult.DENY
+                exec_allowed = False
+                approval_req = False
+                risk_level = "CRITICAL"
+                reason = f"BLOCKED by Policy [{matched_rule.rule_id}]: {matched_rule.description}"
+                
+                enrich_event_security(
+                    security_event,
+                    sensitivity_level=SensitivityLevel.CRITICAL,
+                    policy_tags=["policy_block", matched_rule.rule_id.lower()],
+                    risk_indicators=[matched_rule.rule_id],
+                    anomaly_score=0.90,
+                    threat_flags=["POLICY_VIOLATION_BLOCKED"],
+                )
+                apply_decision(
+                    security_event,
+                    policy_result=policy_res,
+                    reason=reason,
+                )
+
+            elif matched_rule.effect == RuleEffect.REQUIRE_APPROVAL:
+                verdict = "REQUIRE_APPROVAL"
+                policy_res = PolicyResult.REQUIRE_APPROVAL
+                exec_allowed = False
+                approval_req = True
+                risk_level = "HIGH"
+                reason = f"REQUIRE_APPROVAL by Policy [{matched_rule.rule_id}]: {matched_rule.description}"
+                
+                enrich_event_security(
+                    security_event,
+                    sensitivity_level=SensitivityLevel.HIGH,
+                    policy_tags=["policy_approval_required", matched_rule.rule_id.lower()],
+                    risk_indicators=[matched_rule.rule_id],
+                    anomaly_score=0.75,
+                    threat_flags=["REQUIRES_HUMAN_APPROVAL"],
+                )
+                apply_decision(
+                    security_event,
+                    policy_result=policy_res,
+                    reason=reason,
+                    approval_required=True,
+                    approval_status=ApprovalStatus.PENDING,
+                )
+
+            else: # ALLOW
+                verdict = "ALLOW"
+                policy_res = PolicyResult.ALLOW
+                exec_allowed = True
+                approval_req = False
+                risk_level = "LOW"
+                reason = f"ALLOWED by Policy [{matched_rule.rule_id}]: {matched_rule.rule_name}"
+                
+                enrich_event_security(
+                    security_event,
+                    sensitivity_level=SensitivityLevel.LOW,
+                    policy_tags=["policy_allowed", matched_rule.rule_id.lower()],
+                    anomaly_score=0.02,
+                )
+                apply_decision(
+                    security_event,
+                    policy_result=policy_res,
+                    reason=reason,
+                )
+
+            return PolicyEvaluationResult(
+                event_id=security_event.identity.event_id,
+                verdict=verdict,
+                decision_reason=reason,
+                matched_rule_id=matched_rule.rule_id,
+                matched_rule_name=matched_rule.rule_name,
+                matched_rule_type=matched_rule.rule_type.value if hasattr(matched_rule.rule_type, 'value') else str(matched_rule.rule_type),
+                risk_level=risk_level,
+                execution_allowed=exec_allowed,
+                approval_required=approval_req,
             )
+        except Exception as e:
+            logger.error(f"Unexpected error in policy evaluation: {e}", exc_info=True)
+            # Fail closed: Block action and forbid execution
+            fail_reason = "BLOCKED: Policy evaluation failure. Failed closed for security."
+            if hasattr(security_event, "record_decision"):
+                try:
+                    apply_decision(
+                        security_event,
+                        policy_result=PolicyResult.DENY,
+                        reason=fail_reason,
+                    )
+                except Exception:
+                    pass
 
-        # Process verdict based on matched rule effect
-        if matched_rule.effect == RuleEffect.BLOCK:
-            verdict = "BLOCK"
-            policy_res = PolicyResult.DENY
-            exec_allowed = False
-            approval_req = False
-            risk_level = "CRITICAL"
-            reason = f"BLOCKED by Policy [{matched_rule.rule_id}]: {matched_rule.description}"
-            
-            enrich_event_security(
-                security_event,
-                sensitivity_level=SensitivityLevel.CRITICAL,
-                policy_tags=["policy_block", matched_rule.rule_id.lower()],
-                risk_indicators=[matched_rule.rule_id],
-                anomaly_score=0.90,
-                threat_flags=["POLICY_VIOLATION_BLOCKED"],
+            return PolicyEvaluationResult(
+                event_id=getattr(getattr(security_event, "identity", None), "event_id", "unknown"),
+                verdict="BLOCK",
+                decision_reason=fail_reason,
+                matched_rule_id="SEC_FAIL_CLOSED",
+                matched_rule_name="Fail Closed Guard",
+                matched_rule_type="SECURITY",
+                risk_level="CRITICAL",
+                execution_allowed=False,
+                approval_required=False,
             )
-            apply_decision(
-                security_event,
-                policy_result=policy_res,
-                reason=reason,
-            )
-
-        elif matched_rule.effect == RuleEffect.REQUIRE_APPROVAL:
-            verdict = "REQUIRE_APPROVAL"
-            policy_res = PolicyResult.REQUIRE_APPROVAL
-            exec_allowed = False
-            approval_req = True
-            risk_level = "HIGH"
-            reason = f"REQUIRE_APPROVAL by Policy [{matched_rule.rule_id}]: {matched_rule.description}"
-            
-            enrich_event_security(
-                security_event,
-                sensitivity_level=SensitivityLevel.HIGH,
-                policy_tags=["policy_approval_required", matched_rule.rule_id.lower()],
-                risk_indicators=[matched_rule.rule_id],
-                anomaly_score=0.75,
-                threat_flags=["REQUIRES_HUMAN_APPROVAL"],
-            )
-            apply_decision(
-                security_event,
-                policy_result=policy_res,
-                reason=reason,
-                approval_required=True,
-                approval_status=ApprovalStatus.PENDING,
-            )
-
-        else: # ALLOW
-            verdict = "ALLOW"
-            policy_res = PolicyResult.ALLOW
-            exec_allowed = True
-            approval_req = False
-            risk_level = "LOW"
-            reason = f"ALLOWED by Policy [{matched_rule.rule_id}]: {matched_rule.rule_name}"
-            
-            enrich_event_security(
-                security_event,
-                sensitivity_level=SensitivityLevel.LOW,
-                policy_tags=["policy_allowed", matched_rule.rule_id.lower()],
-                anomaly_score=0.02,
-            )
-            apply_decision(
-                security_event,
-                policy_result=policy_res,
-                reason=reason,
-            )
-
-        return PolicyEvaluationResult(
-            event_id=security_event.identity.event_id,
-            verdict=verdict,
-            decision_reason=reason,
-            matched_rule_id=matched_rule.rule_id,
-            matched_rule_name=matched_rule.rule_name,
-            matched_rule_type=matched_rule.rule_type.value if hasattr(matched_rule.rule_type, 'value') else str(matched_rule.rule_type),
-            risk_level=risk_level,
-            execution_allowed=exec_allowed,
-            approval_required=approval_req,
-        )
 
 # Global default policy engine instance
 default_policy_engine = PolicyEngine()

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Shield,
   CheckCircle2,
@@ -8,17 +8,13 @@ import {
   RefreshCw,
   Play,
   User,
-  Clock,
   Database,
   Lock,
   Cpu,
   Layers,
   Check,
   X,
-  ChevronRight,
-  Zap,
-  Radio,
-  FileText
+  Zap
 } from 'lucide-react';
 import {
   AreaChart,

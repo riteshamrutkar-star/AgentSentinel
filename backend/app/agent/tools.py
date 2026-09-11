@@ -14,8 +14,8 @@ def fn_read_workspace_file(filepath: str) -> str:
     return f"Workspace Content of {filepath}: {{'project': 'AgentSentinel', 'version': '0.1.0', 'status': 'active'}}"
 
 def fn_read_system_file(filepath: str) -> str:
-    """Mock implementation of system file read tool."""
-    return f"System File Content of {filepath}: SSH-PRIVATE-KEY-SECRET-DATA"
+    """Mock implementation of system file read tool with sanitized simulated output."""
+    return f"System File Content of {filepath}: [PROTECTED_FILE_ACCESS_DENIED_OR_SIMULATED]"
 
 def fn_drop_database_table(table_name: str) -> str:
     """Mock implementation of database table drop tool."""
@@ -31,6 +31,7 @@ class SecuredTool:
     """
     Wraps standard tool functions or LangChain Tool instances with AgentSentinel runtime mediation.
     Mediates every tool call through the interceptor, policy engine, anomaly detector, and audit subsystem.
+    Enforces strict fail-closed security: the tool function NEVER executes unless explicitly ALLOWed.
     """
 
     def __init__(
@@ -60,7 +61,8 @@ class SecuredTool:
     ) -> Dict[str, Any]:
         """
         Mediates the tool call through AgentSentinel prior to execution.
-        Executes underlying function ONLY when verdict is ALLOW.
+        Executes underlying function ONLY when verdict is explicitly ALLOW.
+        Fails closed on any unexpected evaluation or database errors.
         """
         # Determine target resource from arguments if not statically defined
         resource = self.target_resource
@@ -81,11 +83,20 @@ class SecuredTool:
             task_summary=task_summary,
         )
 
-        # 2. Mediate through AgentSentinel runtime security control plane
-        response: InterceptorResponse = intercept_tool_call(request, db)
+        # 2. Mediate through AgentSentinel runtime security control plane with fail-closed guarantee
+        try:
+            response: InterceptorResponse = intercept_tool_call(request, db)
+        except Exception as e:
+            return {
+                "status": "BLOCKED",
+                "verdict": "BLOCK",
+                "execution_allowed": False,
+                "output": "SECURITY VERDICT: BLOCK. Action prohibited due to security interception error.",
+                "interceptor_response": None,
+            }
 
         # 3. Enforce execution control verdict
-        if response.decision == "ALLOW":
+        if response.decision == "ALLOW" and response.execution_allowed:
             try:
                 output = self.func(**tool_input)
             except Exception as e:
@@ -108,10 +119,10 @@ class SecuredTool:
                 "interceptor_response": response.model_dump(),
             }
 
-        else: # BLOCK
+        else: # BLOCK or any unrecognized state
             return {
                 "status": "BLOCKED",
-                "verdict": response.decision,
+                "verdict": "BLOCK",
                 "execution_allowed": False,
                 "output": f"SECURITY VERDICT: BLOCK. Action '{self.name}' prohibited by AgentSentinel security policy. Reason: {response.decision_reason}",
                 "interceptor_response": response.model_dump(),

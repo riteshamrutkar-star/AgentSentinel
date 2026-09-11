@@ -13,7 +13,9 @@ async def get_dashboard_stats(db: Session = Depends(get_db)):
     """Returns aggregated KPI summary counts for the security dashboard."""
     total_events = db.query(func.count(EventModel.event_id)).scalar() or 0
     allowed_count = db.query(func.count(EventModel.event_id)).filter(EventModel.execution_allowed == True).scalar() or 0
-    blocked_count = db.query(func.count(EventModel.event_id)).filter(EventModel.decision_result == "DENY").scalar() or 0
+    blocked_count = db.query(func.count(EventModel.event_id)).filter(
+        EventModel.decision_result.in_(["DENY", "BLOCK", "REJECTED"])
+    ).scalar() or 0
     pending_approval_count = db.query(func.count(ApprovalModel.approval_id)).filter(ApprovalModel.status == "PENDING").scalar() or 0
     active_session_count = db.query(func.count(SessionModel.session_id)).filter(SessionModel.status == "ACTIVE").scalar() or 0
 
@@ -32,8 +34,11 @@ async def get_dashboard_stats(db: Session = Depends(get_db)):
 @router.get("/activity-trend", summary="Get Security Activity Trend Data")
 async def get_activity_trend(db: Session = Depends(get_db)):
     """Returns activity breakdown over time for live activity chart."""
-    recent_events = db.query(EventModel).order_by(EventModel.created_at.desc()).limit(100).all()
-    recent_events.reverse() # Oldest to newest for timeline
+    recent_events = db.query(
+        EventModel.decision_result,
+        EventModel.created_at
+    ).order_by(EventModel.created_at.desc()).limit(100).all()
+    recent_events.reverse()  # Oldest to newest for timeline
 
     trend_buckets: Dict[str, Dict[str, int]] = {}
     for evt in recent_events:
@@ -44,7 +49,7 @@ async def get_activity_trend(db: Session = Depends(get_db)):
 
         if evt.decision_result == "ALLOW":
             trend_buckets[bucket_key]["allowed"] += 1
-        elif evt.decision_result == "DENY":
+        elif evt.decision_result in ("DENY", "BLOCK", "REJECTED"):
             trend_buckets[bucket_key]["blocked"] += 1
         else:
             trend_buckets[bucket_key]["approval"] += 1
@@ -54,26 +59,26 @@ async def get_activity_trend(db: Session = Depends(get_db)):
         for k, v in trend_buckets.items()
     ]
 
-    return chart_data[-15:] # Return last 15 time buckets
+    return chart_data[-15:]  # Return last 15 time buckets
 
 @router.get("/risk-summary", summary="Get Anomaly Risk Level Summary")
 async def get_risk_summary(db: Session = Depends(get_db)):
-    """Returns count breakdown of events by anomaly risk level."""
-    events = db.query(EventModel).all()
+    """Returns count breakdown of events by anomaly risk level, querying only needed columns."""
+    score_rows = db.query(EventModel.anomaly_score).all()
     counts = {"LOW": 0, "MEDIUM": 0, "HIGH": 0, "CRITICAL": 0}
 
-    for evt in events:
-        score = evt.anomaly_score or 0.0
-        if score < 0.30:
+    for (score,) in score_rows:
+        val = score or 0.0
+        if val < 0.30:
             counts["LOW"] += 1
-        elif score < 0.65:
+        elif val < 0.65:
             counts["MEDIUM"] += 1
-        elif score < 0.85:
+        elif val < 0.85:
             counts["HIGH"] += 1
         else:
             counts["CRITICAL"] += 1
 
-    total = len(events) or 1
+    total = len(score_rows) or 1
     return {
         "counts": counts,
         "percentages": {
@@ -84,7 +89,6 @@ async def get_risk_summary(db: Session = Depends(get_db)):
 @router.get("/active-sessions", summary="Get Active Sessions List")
 async def get_active_sessions(db: Session = Depends(get_db)):
     """Returns list of active agent sessions."""
-    # Query distinct sessions from EventModel
     rows = (
         db.query(
             EventModel.session_id,

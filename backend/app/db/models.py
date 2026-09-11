@@ -72,14 +72,14 @@ class EventModel(Base):
 
     # Decision Context Fields
     policy_result = Column(String(32), default="ALLOW")
-    decision_result = Column(String(32), default="ALLOW")
+    decision_result = Column(String(32), default="ALLOW", index=True)
     decision_reason = Column(Text, default="")
     approval_required = Column(Boolean, default=False)
     reviewer = Column(String(64), nullable=True)
-    approval_status = Column(String(32), default="NOT_REQUIRED")
+    approval_status = Column(String(32), default="NOT_REQUIRED", index=True)
 
     # Execution Context Fields
-    execution_allowed = Column(Boolean, default=True)
+    execution_allowed = Column(Boolean, default=True, index=True)
     execution_result_json = Column(JSON, nullable=True)
     latency_ms = Column(Float, default=0.0)
     error_message = Column(Text, nullable=True)
@@ -95,7 +95,7 @@ class EventModel(Base):
     # Complete Raw JSON representation
     raw_payload_json = Column(JSON, nullable=False)
 
-    created_at = Column(DateTime(timezone=True), default=utc_now)
+    created_at = Column(DateTime(timezone=True), default=utc_now, index=True)
     updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     # Relationships
@@ -130,7 +130,7 @@ class ApprovalModel(Base):
     reviewer = Column(String(64), nullable=True)
     decision = Column(String(32), default="PENDING")
     notes = Column(Text, nullable=True)
-    status = Column(String(32), default="PENDING")
+    status = Column(String(32), default="PENDING", index=True)
 
     event = relationship("EventModel", back_populates="approvals")
 

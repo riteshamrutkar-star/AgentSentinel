@@ -3,6 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.audit.service import approve_action, reject_action
+from app.core.logger import logger
 from app.db.crud import get_security_event_by_id
 from app.db.session import get_db
 from app.interceptor.proxy import intercept_tool_call
@@ -47,9 +49,10 @@ async def handle_tool_call_interception(
         response = intercept_tool_call(request, db)
         return response
     except Exception as e:
+        logger.error(f"Error in handle_tool_call_interception: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Interceptor processing failure: {str(e)}"
+            detail="An error occurred while intercepting the tool call."
         )
 
 @router.post("/intercept/decision", summary="Manual Approval Decision Override")
@@ -58,29 +61,25 @@ async def override_decision(
     db: Session = Depends(get_db)
 ):
     """
-    Provides a preview path for human approval decision overrides on intercepted events.
+    Provides human approval decision overrides on intercepted events,
+    delegating to the canonical audit approval service to ensure model synchronization.
     """
-    event = get_security_event_by_id(db, override.event_id)
-    if not event:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Security event '{override.event_id}' not found."
-        )
-
-    # Update event decision status in database
-    event.approval_status = override.decision.upper()
-    event.reviewer = override.reviewer
-    if override.decision.upper() == "APPROVED":
-        event.execution_allowed = True
-        event.decision_result = "APPROVED"
-        event.decision_reason = f"Human approval granted by {override.reviewer}: {override.notes}"
-    else:
-        event.execution_allowed = False
-        event.decision_result = "REJECTED"
-        event.decision_reason = f"Human approval rejected by {override.reviewer}: {override.notes}"
-
-    db.commit()
-    db.refresh(event)
+    dec = override.decision.strip().upper()
+    try:
+        if dec == "APPROVED":
+            event = approve_action(db, event_id=override.event_id, reviewer=override.reviewer, notes=override.notes)
+        elif dec == "REJECTED":
+            event = reject_action(db, event_id=override.event_id, reviewer=override.reviewer, notes=override.notes)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid decision '{override.decision}'. Must be 'APPROVED' or 'REJECTED'."
+            )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error executing override decision: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to process approval decision override.")
 
     return {
         "status": "success",

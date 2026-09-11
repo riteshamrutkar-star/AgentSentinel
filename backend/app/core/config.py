@@ -1,5 +1,5 @@
 import os
-from typing import Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 from urllib.parse import quote_plus
 from pydantic_settings import BaseSettings
 
@@ -12,6 +12,14 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     LOG_LEVEL: str = "INFO"
+
+    # CORS Allowed Origins
+    CORS_ORIGINS: List[str] = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
 
     # PostgreSQL Database Configuration
     POSTGRES_USER: str = "postgres"
@@ -30,6 +38,12 @@ class Settings(BaseSettings):
         encoded_password = quote_plus(self.POSTGRES_PASSWORD)
         encoded_user = quote_plus(self.POSTGRES_USER)
         return f"postgresql://{encoded_user}:{encoded_password}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+
+    @property
+    def masked_database_url(self) -> str:
+        """Returns database URL with credential password masked for safe logging."""
+        encoded_user = quote_plus(self.POSTGRES_USER)
+        return f"postgresql://{encoded_user}:***@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
 
     class Config:
         env_file = (".env", "../.env")

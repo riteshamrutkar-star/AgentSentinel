@@ -1,24 +1,30 @@
 # AgentSentinel v0.1
 
-Runtime Security & Permission Auditing Framework for Tool-Using AI Agents.
+**Runtime Security, Policy Enforcement & Permission Control Layer for AI Agents**
+
+AgentSentinel mediates tool invocations executed by autonomous AI agents before execution. It normalizes raw tool calls into structured Security Events, evaluates them against RBAC/ABAC security policies, analyzes behavioral sequences for anomalies, supports human administrator approval workflows, persists durable audit logs in PostgreSQL 17, and provides a real-time Security Operations Center (SOC) dashboard.
 
 ---
 
-## 🛡️ What is AgentSentinel?
+## 🛡️ Architecture & Enforcement Flow
 
-**AgentSentinel** is a runtime security layer designed to inspect, validate, and audit tool invocations made by Autonomous AI Agents before they are executed. As AI agents gain access to sensitive tools (such as database queries, system commands, HTTP endpoints, or file operations), AgentSentinel acts as a protective proxy or middleware to enforce safety policies, prevent unauthorized actions, and maintain a verifiable audit trail.
+Every tool invocation passes through the hardened security pipeline:
 
----
-
-## 🎯 What the v0.1 Prototype Does
-
-This initial prototype (**v0.1**) establishes the repository skeleton and backend foundation:
-- **Modular Project Layout**: Organized directories for `backend`, `agent`, `simulator`, `dashboard`, and `scripts`.
-- **FastAPI Core Service**: High-performance asynchronous API backend configured for clean extension.
-- **Environment Configuration**: Centralized setting management with environment variable support (`pydantic-settings`).
-- **Structured Logging**: Pre-configured standard logging format for tracking events and security operations.
-- **Health Verification**: `/health` endpoint providing operational status metrics.
-- **Container Readiness**: `Dockerfile` and `docker-compose.yml` for quick containerized deployment.
+```text
+RAW TOOL CALL (from LangChain Agent or SDK)
+    ↓
+REQUEST NORMALIZATION (ToolCallRequest → SecurityEvent)
+    ↓
+RBAC / ABAC POLICY ENGINE (ALLOW, BLOCK, REQUIRE_APPROVAL)
+    ↓
+BEHAVIORAL ANOMALY DETECTOR (Feature extraction, transition scoring, risk escalation)
+    ↓
+SECURITY DECISION VERDICT (Deterministic fail-closed control)
+    ↓
+AUDIT PERSISTENCE (PostgreSQL 17 durable trail & ApprovalModel queue)
+    ↓
+EXECUTION (Executed ONLY when explicitly permitted)
+```
 
 ---
 
@@ -26,78 +32,110 @@ This initial prototype (**v0.1**) establishes the repository skeleton and backen
 
 ```text
 AgentSentinel/
-├── backend/               # FastAPI backend security engine
+├── backend/                        # FastAPI Backend & Security Core
 │   ├── app/
-│   │   ├── api/           # API routes & endpoint controllers
-│   │   │   └── routes.py  # Primary router including /health
-│   │   ├── core/          # Core utilities & configuration
-│   │   │   ├── config.py  # Environment settings
-│   │   │   └── logger.py  # Structured logging configuration
-│   │   └── main.py        # FastAPI app initialization & entrypoint
-│   ├── Dockerfile         # Docker build file for backend
-│   └── requirements.txt   # Python dependencies
-├── agent/                 # [Placeholder] AI Agent wrapper / Interceptor SDK
-├── simulator/             # [Placeholder] Test attack & simulation scenarios
-├── dashboard/             # [Placeholder] UI dashboard for security audit logs
-├── scripts/               # [Placeholder] Utility & setup scripts
-├── .env.example           # Example environment configuration
-├── docker-compose.yml     # Docker Compose orchestration
-└── README.md              # Project documentation
+│   │   ├── agent/                 # LangChain Agent integration, prompts, secured tools
+│   │   ├── anomaly/               # Behavioral feature extraction & anomaly detector
+│   │   ├── api/                   # FastAPI route controllers (intercept, audit, dashboard, evaluation)
+│   │   ├── audit/                 # Durable audit logging & human approval workflow
+│   │   ├── core/                  # Configuration (pydantic-settings), logging, CORS
+│   │   ├── db/                    # PostgreSQL 17 SQLAlchemy ORM models, session & CRUD
+│   │   ├── evaluation/            # Evaluation metrics and benchmark report generator
+│   │   ├── events/                # Domain models, Pydantic schemas, and event factories
+│   │   ├── interceptor/           # Proxy normalizer, schemas, and runtime interceptor
+│   │   ├── policy/                # RBAC/ABAC rules and priority evaluation engine
+│   │   └── main.py                # FastAPI app factory, CORS, and global exception handler
+│   ├── tests/                     # Comprehensive automated pytest suite (39 tests)
+│   ├── requirements.txt           # Python dependencies
+│   └── Dockerfile                 # Backend container definition
+├── dashboard/                     # React + Vite + TypeScript SOC Security Dashboard
+│   ├── src/                       # Dashboard UI, KPI cards, Recharts, approval drawers
+│   ├── package.json               # Frontend dependencies (React 19, Tailwind CSS v4, Lucide)
+│   └── vite.config.ts             # Vite configuration with Tailwind plugin
+├── scripts/
+│   └── demo_final_evaluation.py   # Phase 10 end-to-end evaluation & demonstration runner
+├── .env.example                   # Environment configuration template
+└── final_evaluation_report.md     # Benchmark evaluation report
 ```
 
 ---
 
-## 🚀 How to Run the Backend Locally
+## 🚀 Setup & Execution Guide
 
-### Option 1: Native Python & Uvicorn
+### 1. Prerequisites
+- Python 3.11+ (Python 3.13 supported)
+- PostgreSQL 17 running on port `5432`
+- Node.js 18+ and npm
 
-1. **Navigate to the backend directory**:
-   ```bash
-   cd backend
-   ```
+### 2. Environment Configuration
+Create a `.env` file in the project root or in `backend/`:
+```env
+APP_NAME=AgentSentinel
+APP_VERSION=0.1.0
+ENVIRONMENT=development
+DEBUG=True
+HOST=0.0.0.0
+PORT=8000
+LOG_LEVEL=INFO
 
-2. **Create and activate a virtual environment**:
-   ```bash
-   python -m venv venv
-   # On Windows:
-   venv\Scripts\activate
-   # On Linux/macOS:
-   source venv/bin/activate
-   ```
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=YOUR_POSTGRES_PASSWORD
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DB=agentsentinel
+DATABASE_URL=postgresql://postgres:YOUR_POSTGRES_PASSWORD@localhost:5432/agentsentinel
+```
 
-3. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
+### 3. Backend Setup & Startup
+```powershell
+cd backend
+python -m venv venv
+# On Windows:
+venv\Scripts\activate
+# On Linux/macOS:
+source venv/bin/activate
 
-4. **Start the FastAPI backend server**:
-   ```bash
-   uvicorn app.main:app --reload --port 8000
-   ```
+pip install -r requirements.txt
 
-5. **Verify the server is running**:
-   - Access OpenAPI Docs: [http://localhost:8000/docs](http://localhost:8000/docs)
-   - Check Health Endpoint: [http://localhost:8000/health](http://localhost:8000/health)
+# Start FastAPI backend
+uvicorn app.main:app --reload --port 8000
+```
+- OpenAPI Documentation: [http://localhost:8000/docs](http://localhost:8000/docs)
+- Health Status: [http://localhost:8000/health](http://localhost:8000/health)
+
+### 4. Frontend Dashboard Startup
+```powershell
+cd dashboard
+npm install
+npm run dev
+```
+Open [http://localhost:5173](http://localhost:5173) in your browser.
 
 ---
 
-### Option 2: Docker Compose
+## 🧪 Running the Automated Test Suite
 
-1. **From the project root, start the container**:
-   ```bash
-   docker-compose up --build
-   ```
+Run the full pytest suite (39 tests covering health, events, policy rules, interceptor, anomaly detection, audit approvals, LangChain runner, database transactions, and API endpoints):
 
-2. **Test health response**:
-   ```bash
-   curl http://localhost:8000/health
-   ```
+```powershell
+# From project root:
+backend\venv\Scripts\python.exe -m pytest backend/tests/ -v
+```
 
 ---
 
-## 🔮 What Comes Next (Roadmap)
+## 🎬 Running the Final Evaluation & Demonstration
 
-- **Phase 3: Interception Proxy Engine**: Middleware to parse incoming agent tool call requests (tool name, arguments, agent identity).
-- **Phase 4: Policy Enforcement Rules**: Rule engine to evaluate allowed, restricted, or blocked tool calls based on context and role-based permissions.
-- **Phase 5: Audit Log & Anomaly Detection**: Persistent logging of all intercepted tool calls with basic anomaly detection.
-- **Phase 6: Monitoring Dashboard**: Modern web interface to inspect real-time security events and policy violations.
+To execute the end-to-end evaluation suite across all 5 benchmark scenarios (benign search, workspace read, credential exfiltration block, database drop approval flow, and behavioral sequence anomaly):
+
+```powershell
+backend\venv\Scripts\python.exe scripts/demo_final_evaluation.py
+```
+This will run the scenarios, print the live execution metrics, and generate [`final_evaluation_report.md`](file:///c:/Users/rites/OneDrive/Desktop/AgentSentinel/AgentSentinel/final_evaluation_report.md).
+
+---
+
+## 🔒 Security Principles
+- **Fail-Closed by Design**: If any component encounters an unexpected error during mediation, the action is blocked and execution is refused.
+- **Durable Auditability**: 100% of decisions, anomaly scores, and human approvals are permanently stored in PostgreSQL.
+- **Zero-Bypass Interception**: Secured tools encapsulate the underlying capability; tool code can never run without prior explicit security authorization.

@@ -1,10 +1,11 @@
 from datetime import datetime, timezone
 from typing import List, Optional
 from sqlalchemy.orm import Session
+from app.core.logger import logger
 from app.db.models import ApprovalModel, EventModel
 
 def create_approval_request(db: Session, event_id: str) -> ApprovalModel:
-    """Creates a new approval request record in PostgreSQL for a REQUIRE_APPROVAL event."""
+    """Creates a new approval request record in PostgreSQL for a REQUIRE_APPROVAL event with rollback safety."""
     existing = db.query(ApprovalModel).filter(ApprovalModel.event_id == event_id).first()
     if existing:
         return existing
@@ -15,10 +16,15 @@ def create_approval_request(db: Session, event_id: str) -> ApprovalModel:
         status="PENDING",
         decision="PENDING",
     )
-    db.add(approval)
-    db.commit()
-    db.refresh(approval)
-    return approval
+    try:
+        db.add(approval)
+        db.commit()
+        db.refresh(approval)
+        return approval
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to create approval request for event '{event_id}': {e}", exc_info=True)
+        raise
 
 def get_approval_by_id(db: Session, approval_id: str) -> Optional[ApprovalModel]:
     """Retrieves an approval record by approval_id."""
@@ -47,7 +53,7 @@ def update_approval_status(
     reviewer: str,
     notes: str = ""
 ) -> Optional[ApprovalModel]:
-    """Updates an approval record decision status, reviewer identity, and notes."""
+    """Updates an approval record decision status, reviewer identity, and notes with rollback safety."""
     approval = db.query(ApprovalModel).filter(ApprovalModel.event_id == event_id).first()
     if not approval:
         approval = create_approval_request(db, event_id)
@@ -59,9 +65,14 @@ def update_approval_status(
     approval.notes = notes
     approval.reviewed_at = now
 
-    db.commit()
-    db.refresh(approval)
-    return approval
+    try:
+        db.commit()
+        db.refresh(approval)
+        return approval
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to update approval status for event '{event_id}': {e}", exc_info=True)
+        raise
 
 def list_audit_events(
     db: Session,

@@ -1,3 +1,4 @@
+import math
 from typing import Any, Dict, Optional
 from pydantic import BaseModel, Field
 from app.anomaly.thresholds import AnomalyLevel, classify_anomaly_level, get_recommended_action
@@ -17,17 +18,28 @@ class StatisticalAnomalyScorer:
     """
     Statistical and heuristic scoring engine for behavioral anomaly analysis.
     Computes a normalized composite score from extracted session features.
+    Guarantees score is bounded in [0.0, 1.0] and mathematically safe.
     """
 
     @staticmethod
-    def score_session_features(session_id: str, features: Dict[str, float]) -> AnomalyAnalysisResult:
-        denied_count = features.get("denied_count", 0.0)
-        sensitive_count = features.get("sensitive_action_count", 0.0)
-        burst_count = features.get("burst_count", 0.0)
-        ratio_denied = features.get("ratio_denied", 0.0)
-        transition_penalty = features.get("transition_penalty", 0.0)
-        role_mismatch = features.get("role_mismatch", 0.0)
-        seq_length = features.get("sequence_length", 1.0)
+    def score_session_features(session_id: str, features: Optional[Dict[str, float]] = None) -> AnomalyAnalysisResult:
+        feats = features or {}
+
+        def _safe_float(key: str, default: float = 0.0) -> float:
+            val = feats.get(key, default)
+            try:
+                f_val = float(val)
+                return 0.0 if math.isnan(f_val) or math.isinf(f_val) else f_val
+            except (ValueError, TypeError):
+                return default
+
+        denied_count = _safe_float("denied_count", 0.0)
+        sensitive_count = _safe_float("sensitive_action_count", 0.0)
+        burst_count = _safe_float("burst_count", 0.0)
+        ratio_denied = _safe_float("ratio_denied", 0.0)
+        transition_penalty = _safe_float("transition_penalty", 0.0)
+        role_mismatch = _safe_float("role_mismatch", 0.0)
+        seq_length = max(1.0, _safe_float("sequence_length", 1.0))
 
         # Baseline calculation
         score = 0.05  # Base normal noise
@@ -52,7 +64,7 @@ class StatisticalAnomalyScorer:
         if ratio_denied > 0.40 and seq_length > 2:
             score += 0.25
 
-        # Normalize score between 0.0 and 1.0
+        # Strictly clamp score between 0.0 and 1.0
         final_score = round(min(1.0, max(0.0, score)), 3)
         anomaly_level = classify_anomaly_level(final_score)
         flagged = final_score >= 0.65
@@ -82,12 +94,12 @@ class StatisticalAnomalyScorer:
         rec_action = get_recommended_action(anomaly_level)
 
         return AnomalyAnalysisResult(
-            session_id=session_id,
+            session_id=str(session_id),
             anomaly_score=final_score,
             anomaly_level=anomaly_level,
             flagged=flagged,
             reason=reason,
             matched_pattern=matched_pattern,
             recommended_action=rec_action,
-            features=features,
+            features=feats,
         )

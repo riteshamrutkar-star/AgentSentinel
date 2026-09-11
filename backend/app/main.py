@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from app.core.config import settings
 from app.core.logger import logger
 from app.api.routes import router as api_router
@@ -21,14 +22,26 @@ def create_app() -> FastAPI:
         lifespan=lifespan
     )
 
-    # Enable CORS for dashboard frontend
+    # Enable CORS for dashboard frontend with restricted, configurable origins
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=settings.CORS_ORIGINS,
         allow_credentials=True,
-        allow_methods=["*"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["*"],
     )
+
+    # Global exception handler to mask internal error details from API responses
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception):
+        logger.error(f"Unhandled exception during {request.method} {request.url.path}: {exc}", exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "detail": "An internal server error occurred while processing the security request.",
+                "path": request.url.path,
+            }
+        )
 
     # Register API routes
     app.include_router(api_router)
