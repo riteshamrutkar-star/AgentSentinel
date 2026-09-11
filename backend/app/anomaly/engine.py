@@ -185,3 +185,5 @@ class UnifiedRiskEngine:
 
 # Global default unified risk engine instance
 default_risk_engine = UnifiedRiskEngine()
+default_unified_risk_engine = default_risk_engine
+

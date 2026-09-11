@@ -5,11 +5,14 @@ from app.core.logger import logger
 from app.db.models import (
     AgentModel,
     ApprovalModel,
+    AttackRunModel,
+    AttackScenarioModel,
     DelegationModel,
     EventModel,
     ExecutionModel,
     ModelMetadataModel,
     PolicyModel,
+    SecurityFindingModel,
     SessionModel,
 )
 from app.events.model import SecurityEvent
@@ -17,14 +20,16 @@ from app.events.model import SecurityEvent
 # --- Session CRUD ---
 
 def get_or_create_session(
-    db: Session,
+    db: Optional[Session],
     session_id: str,
     agent_id: str,
     user_id: str,
     role: str = "default_agent",
     framework_name: str = "LangChain",
-) -> SessionModel:
+) -> Optional[SessionModel]:
     """Retrieves existing session or creates a new session record with rollback protection."""
+    if db is None:
+        return None
     db_session = db.query(SessionModel).filter(SessionModel.session_id == session_id).first()
     if not db_session:
         db_session = SessionModel(
@@ -47,8 +52,10 @@ def get_or_create_session(
 
 # --- Event CRUD ---
 
-def save_security_event(db: Session, security_event: SecurityEvent) -> EventModel:
+def save_security_event(db: Optional[Session], security_event: SecurityEvent) -> Optional[EventModel]:
     """Persists a Phase 3A SecurityEvent model into PostgreSQL with transaction rollback safety."""
+    if db is None:
+        return None
     # Ensure parent session exists
     get_or_create_session(
         db=db,
@@ -126,12 +133,14 @@ def get_security_event_by_id(db: Session, event_id: str) -> Optional[EventModel]
     return db.query(EventModel).filter(EventModel.event_id == event_id).first()
 
 def list_security_events(
-    db: Session,
+    db: Optional[Session],
     session_id: Optional[str] = None,
     limit: int = 50,
     offset: int = 0
 ) -> List[EventModel]:
     """Lists security events with optional session filtering."""
+    if not db:
+        return []
     query = db.query(EventModel)
     if session_id:
         query = query.filter(EventModel.session_id == session_id)
@@ -424,5 +433,226 @@ def list_executions(
     if status:
         query = query.filter(ExecutionModel.status == status)
     return query.order_by(ExecutionModel.created_at.desc()).limit(limit).all()
+
+
+# --- Attack Simulation & Threat Intelligence CRUD ---
+
+def record_attack_scenario(
+    db: Session,
+    scenario_id: str,
+    name: str,
+    category: str,
+    severity: str,
+    objective: str,
+    description: str = "",
+    mitre_atlas_id: str = "UNMAPPED",
+    owasp_llm_id: str = "UNMAPPED",
+    expected_decision: str = "BLOCK",
+    expected_detector: str = "",
+    is_multi_step: bool = False,
+    enabled: bool = True,
+    metadata: Optional[dict] = None,
+) -> AttackScenarioModel:
+    """Inserts or updates an AttackScenario definition in PostgreSQL."""
+    existing = db.query(AttackScenarioModel).filter(AttackScenarioModel.scenario_id == scenario_id).first()
+    if existing:
+        existing.name = name
+        existing.category = category
+        existing.severity = severity
+        existing.objective = objective
+        existing.description = description
+        existing.mitre_atlas_id = mitre_atlas_id
+        existing.owasp_llm_id = owasp_llm_id
+        existing.expected_decision = expected_decision
+        existing.expected_detector = expected_detector
+        existing.is_multi_step = is_multi_step
+        existing.enabled = enabled
+        existing.metadata_json = metadata or {}
+        record = existing
+    else:
+        record = AttackScenarioModel(
+            scenario_id=scenario_id,
+            name=name,
+            category=category,
+            severity=severity,
+            objective=objective,
+            description=description,
+            mitre_atlas_id=mitre_atlas_id,
+            owasp_llm_id=owasp_llm_id,
+            expected_decision=expected_decision,
+            expected_detector=expected_detector,
+            is_multi_step=is_multi_step,
+            enabled=enabled,
+            metadata_json=metadata or {},
+        )
+        db.add(record)
+    try:
+        db.commit()
+        db.refresh(record)
+        return record
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to record attack scenario '{scenario_id}': {e}", exc_info=True)
+        raise
+
+
+def get_attack_scenario_by_id(db: Session, scenario_id: str) -> Optional[AttackScenarioModel]:
+    """Retrieves an attack scenario by ID."""
+    return db.query(AttackScenarioModel).filter(AttackScenarioModel.scenario_id == scenario_id).first()
+
+
+def list_attack_scenarios(
+    db: Session,
+    category: Optional[str] = None,
+    enabled: Optional[bool] = None,
+    limit: int = 100,
+) -> List[AttackScenarioModel]:
+    """Lists attack scenarios with optional filtering."""
+    query = db.query(AttackScenarioModel)
+    if category:
+        query = query.filter(AttackScenarioModel.category == category)
+    if enabled is not None:
+        query = query.filter(AttackScenarioModel.enabled == enabled)
+    return query.order_by(AttackScenarioModel.scenario_id.asc()).limit(limit).all()
+
+
+def record_attack_run(
+    db: Session,
+    run_id: str,
+    scenario_id: str,
+    category: str,
+    baseline_type: str,
+    status: str,
+    interrupted_at_step: Optional[int],
+    total_steps: int,
+    prevention_stage: Optional[str],
+    final_decision: str,
+    actual_decision: str,
+    is_successful_attack: bool,
+    execution_time_ms: float,
+    step_results: Optional[list] = None,
+    graph_nodes: Optional[list] = None,
+    graph_edges: Optional[list] = None,
+    summary_notes: str = "",
+) -> AttackRunModel:
+    """Inserts a completed attack run audit record into PostgreSQL."""
+    record = AttackRunModel(
+        run_id=run_id,
+        scenario_id=scenario_id,
+        category=category,
+        baseline_type=baseline_type,
+        status=status,
+        interrupted_at_step=interrupted_at_step,
+        total_steps=total_steps,
+        prevention_stage=prevention_stage,
+        final_decision=final_decision,
+        actual_decision=actual_decision,
+        is_successful_attack=is_successful_attack,
+        execution_time_ms=execution_time_ms,
+        step_results_json=step_results or [],
+        graph_nodes_json=graph_nodes or [],
+        graph_edges_json=graph_edges or [],
+        summary_notes=summary_notes,
+    )
+    try:
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+        return record
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to record attack run '{run_id}': {e}", exc_info=True)
+        raise
+
+
+def get_attack_run_by_id(db: Session, run_id: str) -> Optional[AttackRunModel]:
+    """Retrieves an attack run audit record by ID."""
+    return db.query(AttackRunModel).filter(AttackRunModel.run_id == run_id).first()
+
+
+def list_attack_runs(
+    db: Session,
+    scenario_id: Optional[str] = None,
+    category: Optional[str] = None,
+    baseline_type: Optional[str] = None,
+    limit: int = 100,
+) -> List[AttackRunModel]:
+    """Lists attack run audit records with optional filtering."""
+    query = db.query(AttackRunModel)
+    if scenario_id:
+        query = query.filter(AttackRunModel.scenario_id == scenario_id)
+    if category:
+        query = query.filter(AttackRunModel.category == category)
+    if baseline_type:
+        query = query.filter(AttackRunModel.baseline_type == baseline_type)
+    return query.order_by(AttackRunModel.created_at.desc()).limit(limit).all()
+
+
+def record_security_finding(
+    db: Session,
+    finding_id: str,
+    run_id: str,
+    scenario_id: str,
+    category: str,
+    severity: str,
+    title: str,
+    description: str = "",
+    remediation: str = "",
+    mitre_atlas_id: str = "UNMAPPED",
+    owasp_llm_id: str = "UNMAPPED",
+    prevented_by: str = "POLICY_ENGINE",
+    evidence: Optional[list] = None,
+) -> SecurityFindingModel:
+    """Inserts a structured threat intelligence security finding into PostgreSQL."""
+    record = SecurityFindingModel(
+        finding_id=finding_id,
+        run_id=run_id,
+        scenario_id=scenario_id,
+        category=category,
+        severity=severity,
+        title=title,
+        description=description,
+        remediation=remediation,
+        mitre_atlas_id=mitre_atlas_id,
+        owasp_llm_id=owasp_llm_id,
+        prevented_by=prevented_by,
+        evidence_json=evidence or [],
+    )
+    try:
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+        return record
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to record security finding '{finding_id}': {e}", exc_info=True)
+        raise
+
+
+def list_security_findings(
+    db: Session,
+    run_id: Optional[str] = None,
+    scenario_id: Optional[str] = None,
+    category: Optional[str] = None,
+    severity: Optional[str] = None,
+    limit: int = 100,
+) -> List[SecurityFindingModel]:
+    """Lists security findings with optional filtering."""
+    query = db.query(SecurityFindingModel)
+    if run_id:
+        query = query.filter(SecurityFindingModel.run_id == run_id)
+    if scenario_id:
+        query = query.filter(SecurityFindingModel.scenario_id == scenario_id)
+    if category:
+        query = query.filter(SecurityFindingModel.category == category)
+    if severity:
+        query = query.filter(SecurityFindingModel.severity == severity)
+    return query.order_by(SecurityFindingModel.created_at.desc()).limit(limit).all()
+
+
+def get_security_finding_by_id(db: Session, finding_id: str) -> Optional[SecurityFindingModel]:
+    """Retrieves a security finding by ID."""
+    return db.query(SecurityFindingModel).filter(SecurityFindingModel.finding_id == finding_id).first()
+
 
 

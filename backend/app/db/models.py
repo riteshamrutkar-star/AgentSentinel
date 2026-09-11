@@ -206,3 +206,66 @@ class ExecutionModel(Base):
     created_at = Column(DateTime(timezone=True), default=utc_now)
 
 
+class AttackScenarioModel(Base):
+    """Stores attack simulation scenario definitions, metadata, and expected baseline behaviors."""
+    __tablename__ = "attack_scenarios"
+
+    scenario_id = Column(String(64), primary_key=True, index=True)
+    name = Column(String(128), nullable=False)
+    category = Column(String(64), nullable=False, index=True)
+    severity = Column(String(32), nullable=False, default="MEDIUM")
+    objective = Column(String(64), nullable=False)
+    description = Column(Text, default="")
+    mitre_atlas_id = Column(String(64), default="UNMAPPED")
+    owasp_llm_id = Column(String(64), default="UNMAPPED")
+    expected_decision = Column(String(32), default="BLOCK")
+    expected_detector = Column(String(128), default="")
+    is_multi_step = Column(Boolean, default=False)
+    enabled = Column(Boolean, default=True)
+    metadata_json = Column(JSON, default=dict)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+
+
+class AttackRunModel(Base):
+    """Stores full audit logs of attack simulation runs, baseline comparisons, and execution graphs."""
+    __tablename__ = "attack_runs"
+
+    run_id = Column(String(64), primary_key=True, index=True)
+    scenario_id = Column(String(64), nullable=False, index=True)
+    category = Column(String(64), nullable=False, index=True)
+    baseline_type = Column(String(64), nullable=False, default="SYSTEM_D_FULL_AGENTSENTINEL")
+    status = Column(String(32), nullable=False, default="COMPLETED")
+    interrupted_at_step = Column(Integer, nullable=True)
+    total_steps = Column(Integer, default=1)
+    prevention_stage = Column(String(64), nullable=True)
+    final_decision = Column(String(32), default="BLOCK")
+    actual_decision = Column(String(32), default="BLOCK")
+    is_successful_attack = Column(Boolean, default=False)
+    execution_time_ms = Column(Float, default=0.0)
+    step_results_json = Column(JSON, default=list)
+    graph_nodes_json = Column(JSON, default=list)
+    graph_edges_json = Column(JSON, default=list)
+    summary_notes = Column(Text, default="")
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+
+
+class SecurityFindingModel(Base):
+    """Stores structured threat findings, MITRE ATLAS/OWASP LLM mappings, and remediation guidance."""
+    __tablename__ = "security_findings"
+
+    finding_id = Column(String(64), primary_key=True, index=True)
+    run_id = Column(String(64), nullable=False, index=True)
+    scenario_id = Column(String(64), nullable=False, index=True)
+    category = Column(String(64), nullable=False, index=True)
+    severity = Column(String(32), nullable=False, default="HIGH")
+    title = Column(String(256), nullable=False)
+    description = Column(Text, default="")
+    remediation = Column(Text, default="")
+    mitre_atlas_id = Column(String(64), default="UNMAPPED")
+    owasp_llm_id = Column(String(64), default="UNMAPPED")
+    prevented_by = Column(String(128), default="POLICY_ENGINE")
+    evidence_json = Column(JSON, default=list)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+
+
+

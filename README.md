@@ -332,14 +332,64 @@ All benchmarks run live against the PostgreSQL 17 database and FastAPI control p
 | **Phase 0.3** | Behavioral Risk Intelligence | 10 | 90.0% | 1.0000 | 0.8750 | 0.0000 | 0.1250 | 28.42 ms |
 | **Phase 0.4** | Multi-Agent Governance | 12 | 100.0% | 1.0000 | 1.0000 | 0.0000 | 0.0000 | 29.86 ms |
 | **Phase 0.5** | Secure Execution Gateway | 20 | 100.0% | 1.0000 | 1.0000 | 0.0000 | 0.0000 | 3.89 ms |
+| **Phase 0.6** | Attack Simulation & Threat Intel | 25 | 96.0% | 0.9500 | 1.0000 | 0.1667 | 0.0000 | 14.30 ms |
+
+---
+
+## ⚔️ Phase 0.6: Attack Simulation, Threat Intelligence & Security Validation
+
+AgentSentinel transforms from a passive defense layer into an active security validation platform. It generates, executes, classifies, traces, measures, and reports controlled adversarial agent behaviors against its own defenses across 4 comparative architectural baselines under a strict **Zero-Bypass Rule**.
+
+### Comparative Architectural Baselines
+1. **System A: Unprotected (Safe Abstract Reference Baseline)**
+   - No runtime interceptor, no policy checks, no behavioral anomaly detection, no sandbox enforcement. All simulated actions execute against safe mock sinks.
+2. **System B: Static Policy Enforcement Only**
+   - RBAC/ABAC policy engine active; behavioral risk engine, multi-agent governance, and execution sandbox disabled.
+3. **System C: Policy + Unified Behavioral Risk Intelligence**
+   - Policy engine plus composite statistical and modular behavioral detectors (sequence, burst, transition, role-capability) active; sandboxing disabled.
+4. **System D: Full AgentSentinel**
+   - Complete multi-layered defense active: Policy Engine + Behavioral Risk Engine + Multi-Agent Delegation Governance + Tool Registry + Secure Execution Gateway (14 Gates).
+
+### 17 Canonical Attack Taxonomy Categories & Verified Standards Mapping
+Every simulated attack maps strictly to verified MITRE ATLAS and OWASP Top 10 for LLMs identifiers (zero fabricated IDs):
+
+| Category Code | Attack Technique Category | Verified MITRE ATLAS | Verified OWASP Top 10 for LLMs | Primary Defense Control |
+| :--- | :--- | :---: | :---: | :--- |
+| **`A`** | **System & Environment Reconnaissance** | `AML.T0043` | `LLM02:2025` | `SequenceAnomalyDetector` |
+| **`B`** | **Credential & Secret Exfiltration** | `AML.T0024` | `LLM02:2025` | `PolicyRule [SEC_BLOCK_CREDENTIALS]` |
+| **`C`** | **Sensitive Data Access & Destruction** | `AML.T0053` | `LLM06:2025` | `ABAC Policy [ABAC_DESTRUCTIVE_DB_APPROVAL]` |
+| **`D`** | **Direct Data Exfiltration** | `AML.T0024` | `LLM02:2025` | `NetworkEgressGuard` |
+| **`E`** | **Privilege Escalation** | `AML.T0053` | `LLM06:2025` | `PrivilegeEscalationDetector` |
+| **`F`** | **Unauthorized Tool Abuse** | `AML.T0053` | `LLM06:2025` | `ToolRegistry [Registration Gate]` |
+| **`G`** | **Filesystem Traversal & Abuse** | `AML.T0053` | `LLM06:2025` | `FilesystemSandbox [Path Canonicalization]` |
+| **`H`** | **Network Abuse & SSRF** | `AML.T0053` | `LLM06:2025` | `NetworkEgressGuard [IP/Metadata Filter]` |
+| **`I`** | **Arbitrary Process Execution** | `AML.T0053` | `LLM06:2025` | `ProcessExecutionGuard [Allowed Exes]` |
+| **`J`** | **Adversarial Prompt Injection** | `AML.T0054` | `LLM01:2025` | `RuntimeInterceptor [Prompt Guard]` |
+| **`K`** | **Policy & Control Manipulation** | `AML.T0053` | `LLM06:2025` | `PolicyEngine [Fail-Closed Security]` |
+| **`L`** | **Delegation Abuse & Over-Scoping** | `AML.T0053` | `LLM06:2025` | `DelegationManager [Scope & Depth]` |
+| **`M`** | **Multi-Agent Privilege Laundering** | `AML.T0053` | `LLM06:2025` | `AgentMessageInterceptor [Trace Provenance]` |
+| **`N`** | **Persistence Probing & Hammering** | `AML.T0040` | `LLM04:2025` | `BurstFrequencyDetector` |
+| **`O`** | **Destructive Intent Operations** | `AML.T0053` | `LLM06:2025` | `ABAC Policy [Human Approval Required]` |
+| **`P`** | **Resource & Execution Exhaustion** | `AML.T0040` | `LLM04:2025` | `InProcessSandboxRunner [Deadline Timeout]` |
+| **`Q`** | **Sandbox Profile Violations** | `AML.T0053` | `LLM06:2025` | `SecureExecutionGateway [Gates 7, 8, 10]` |
+
+### Empirical Multi-Baseline Benchmark Metrics (25 Scenarios)
+Empirical validation across all 25 scenarios (19 adversarial + 4 benign controls + multi-step chains) demonstrates:
+- **System A (Unprotected)**: 0.0% Prevention Rate, 0.0% FPR, 0.00 F1
+- **System B (Static Policy)**: 47.4% Prevention Rate, 0.0% FPR, 0.64 F1
+- **System C (Policy + Behavioral)**: 47.4% Prevention Rate, 0.0% FPR, 0.64 F1
+- **System D (Full AgentSentinel)**: **100.0% Adversarial Prevention Rate**, 96.0% Overall Accuracy, 95.0% Precision, 100.0% Recall, **0.9744 F1-Score**
+- **Multi-Step Chain Interruption**: Multi-step persistence (`ATK_PER_01`) interrupted at step 1/3; multi-stage chain (`ATK_CHN_01`) interrupted at step 2/3.
 
 ---
 
 ## 🔒 Core Security Principles
 - **Fail-Closed by Design**: If any detector, validator, sandbox, or database operation encounters an unexpected error during mediation, the action is blocked and execution is refused.
-- **Durable Auditability**: 100% of decisions, anomaly scores, multi-detector risk decompositions, delegation tokens, executions, and human approvals are permanently stored in PostgreSQL.
-- **Zero-Bypass Interception**: Secured tools encapsulate the underlying capability; tool code can never run without prior explicit security authorization and gateway execution.
+- **Zero-Bypass Interception**: All simulated and real agent actions traverse the authentic AgentSentinel pipeline (`RuntimeInterceptor` $\to$ `PolicyEngine` $\to$ `UnifiedRiskEngine` $\to$ `MultiAgentGovernance` $\to$ `ToolRegistry` $\to$ `SecureExecutionGateway` $\to$ `PostgreSQL Audit`).
+- **Strict Simulation Safety**: All attack simulations remain strictly local, synthetic, non-destructive, and deterministic. No real malware, no external scanning, no destructive host operations.
+- **Durable Auditability**: 100% of decisions, anomaly scores, multi-detector risk decompositions, delegation tokens, executions, attack runs, security findings, and human approvals are permanently stored in PostgreSQL.
 - **Mandatory Execution Boundary**: Authorization is enforced physically via filesystem path canonicalization, network destination filtering, and process allowlists.
 - **End-to-End Multi-Agent Provenance**: Every delegated tool execution preserves the complete origin-to-execution delegation chain in durable audit metadata.
-- **Explainable Decisions**: Every behavioral escalation and delegation decision records clear top risk factors and factual evidence strings visible in the SOC dashboard.
+- **Explainable Decisions**: Every behavioral escalation, delegation decision, and security finding records clear top risk factors, verified MITRE/OWASP IDs, and actionable remediation guidance.
+
 

@@ -3,11 +3,14 @@ from app.db.session import engine, SessionLocal, get_db
 from app.db.models import (
     AgentModel,
     ApprovalModel,
+    AttackRunModel,
+    AttackScenarioModel,
     DelegationModel,
     EventModel,
     ExecutionModel,
     ModelMetadataModel,
     PolicyModel,
+    SecurityFindingModel,
     SessionModel,
 )
 from app.db.crud import (
@@ -29,6 +32,15 @@ from app.db.crud import (
     create_execution_record,
     get_execution_by_id,
     list_executions,
+    record_attack_scenario,
+    get_attack_scenario_by_id,
+    list_attack_scenarios,
+    record_attack_run,
+    get_attack_run_by_id,
+    list_attack_runs,
+    record_security_finding,
+    list_security_findings,
+    get_security_finding_by_id,
 )
 
 __all__ = [
@@ -44,6 +56,9 @@ __all__ = [
     "ModelMetadataModel",
     "AgentModel",
     "DelegationModel",
+    "AttackScenarioModel",
+    "AttackRunModel",
+    "SecurityFindingModel",
     "save_security_event",
     "get_security_event_by_id",
     "list_security_events",
@@ -62,5 +77,15 @@ __all__ = [
     "create_execution_record",
     "get_execution_by_id",
     "list_executions",
+    "record_attack_scenario",
+    "get_attack_scenario_by_id",
+    "list_attack_scenarios",
+    "record_attack_run",
+    "get_attack_run_by_id",
+    "list_attack_runs",
+    "record_security_finding",
+    "list_security_findings",
+    "get_security_finding_by_id",
 ]
+
 

@@ -28,8 +28,8 @@ def record_audit_entry(db: Session, security_event: SecurityEvent) -> EventModel
     # Persist event through Phase 3B CRUD layer
     db_event = save_security_event(db, security_event)
 
-    # If approval required, create approval request record
-    if security_event.decision_context.approval_required:
+    # If approval required and db is present, create approval request record
+    if db is not None and security_event.decision_context.approval_required:
         create_approval_request(db, event_id)
 
     return db_event
