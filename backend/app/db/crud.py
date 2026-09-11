@@ -1,7 +1,16 @@
 from typing import List, Optional
+from datetime import datetime
 from sqlalchemy.orm import Session
 from app.core.logger import logger
-from app.db.models import ApprovalModel, EventModel, ModelMetadataModel, PolicyModel, SessionModel
+from app.db.models import (
+    AgentModel,
+    ApprovalModel,
+    DelegationModel,
+    EventModel,
+    ModelMetadataModel,
+    PolicyModel,
+    SessionModel,
+)
 from app.events.model import SecurityEvent
 
 # --- Session CRUD ---
@@ -165,3 +174,182 @@ def create_policy(
 def list_active_policies(db: Session) -> List[PolicyModel]:
     """Retrieves all active security policies ordered by priority."""
     return db.query(PolicyModel).filter(PolicyModel.is_active == True).order_by(PolicyModel.priority.asc()).all()
+
+
+# --- Multi-Agent Identity & Delegation CRUD ---
+
+def register_or_update_agent(
+    db: Session,
+    agent_id: str,
+    name: str,
+    role: str = "default_agent",
+    agent_type: str = "assistant",
+    owner: str = "system",
+    capabilities: Optional[List[str]] = None,
+    trust_level: str = "STANDARD",
+    trust_score: float = 0.60,
+    status: str = "ACTIVE",
+    metadata: Optional[dict] = None,
+) -> AgentModel:
+    """Registers a new agent or updates an existing agent identity record."""
+    agent = db.query(AgentModel).filter(AgentModel.agent_id == agent_id).first()
+    caps = capabilities if capabilities is not None else []
+    meta = metadata if metadata is not None else {}
+
+    if not agent:
+        agent = AgentModel(
+            agent_id=agent_id,
+            name=name,
+            role=role,
+            agent_type=agent_type,
+            owner=owner,
+            capabilities_json=caps,
+            trust_level=trust_level,
+            trust_score=trust_score,
+            status=status,
+            metadata_json=meta,
+        )
+        db.add(agent)
+    else:
+        agent.name = name
+        agent.role = role
+        agent.agent_type = agent_type
+        agent.owner = owner
+        agent.capabilities_json = caps
+        agent.trust_level = trust_level
+        agent.trust_score = trust_score
+        agent.status = status
+        agent.metadata_json = meta
+
+    try:
+        db.commit()
+        db.refresh(agent)
+        return agent
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to register/update agent '{agent_id}': {e}", exc_info=True)
+        raise
+
+
+def get_agent_by_id(db: Session, agent_id: str) -> Optional[AgentModel]:
+    """Retrieves an agent identity record by agent_id."""
+    return db.query(AgentModel).filter(AgentModel.agent_id == agent_id).first()
+
+
+def list_agents(db: Session, status: Optional[str] = None) -> List[AgentModel]:
+    """Lists registered agents, optionally filtered by operational status."""
+    query = db.query(AgentModel)
+    if status:
+        query = query.filter(AgentModel.status == status)
+    return query.order_by(AgentModel.created_at.asc()).all()
+
+
+def update_agent_status(db: Session, agent_id: str, status: str) -> Optional[AgentModel]:
+    """Updates the lifecycle status of an agent (e.g. ACTIVE, REVOKED, SUSPENDED)."""
+    agent = db.query(AgentModel).filter(AgentModel.agent_id == agent_id).first()
+    if not agent:
+        return None
+    agent.status = status
+    try:
+        db.commit()
+        db.refresh(agent)
+        return agent
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to update status for agent '{agent_id}': {e}", exc_info=True)
+        raise
+
+
+def update_agent_trust(db: Session, agent_id: str, trust_score: float, trust_level: str) -> Optional[AgentModel]:
+    """Updates the calculated trust score and level for an agent."""
+    agent = db.query(AgentModel).filter(AgentModel.agent_id == agent_id).first()
+    if not agent:
+        return None
+    agent.trust_score = trust_score
+    agent.trust_level = trust_level
+    try:
+        db.commit()
+        db.refresh(agent)
+        return agent
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to update trust for agent '{agent_id}': {e}", exc_info=True)
+        raise
+
+
+def create_delegation(
+    db: Session,
+    delegation_id: str,
+    source_agent_id: str,
+    target_agent_id: str,
+    session_id: str,
+    delegated_capabilities: List[str],
+    resource_scope: str = "*",
+    delegation_depth: int = 1,
+    parent_delegation_id: Optional[str] = None,
+    expires_at: Optional[datetime] = None,
+    provenance_chain: Optional[List[str]] = None,
+    metadata: Optional[dict] = None,
+) -> DelegationModel:
+    """Persists a new delegation record in PostgreSQL."""
+    chain = provenance_chain if provenance_chain is not None else [source_agent_id, target_agent_id]
+    meta = metadata if metadata is not None else {}
+
+    delegation = DelegationModel(
+        delegation_id=delegation_id,
+        source_agent_id=source_agent_id,
+        target_agent_id=target_agent_id,
+        session_id=session_id,
+        parent_delegation_id=parent_delegation_id,
+        delegated_capabilities_json=delegated_capabilities,
+        resource_scope=resource_scope,
+        delegation_depth=delegation_depth,
+        status="ACTIVE",
+        expires_at=expires_at,
+        provenance_chain_json=chain,
+        metadata_json=meta,
+    )
+    try:
+        db.add(delegation)
+        db.commit()
+        db.refresh(delegation)
+        return delegation
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to create delegation record '{delegation_id}': {e}", exc_info=True)
+        raise
+
+
+def get_delegation_by_id(db: Session, delegation_id: str) -> Optional[DelegationModel]:
+    """Retrieves a delegation record by delegation_id."""
+    return db.query(DelegationModel).filter(DelegationModel.delegation_id == delegation_id).first()
+
+
+def list_delegations(
+    db: Session,
+    session_id: Optional[str] = None,
+    status: Optional[str] = None
+) -> List[DelegationModel]:
+    """Lists delegation records with optional session and status filtering."""
+    query = db.query(DelegationModel)
+    if session_id:
+        query = query.filter(DelegationModel.session_id == session_id)
+    if status:
+        query = query.filter(DelegationModel.status == status)
+    return query.order_by(DelegationModel.created_at.desc()).all()
+
+
+def revoke_delegation(db: Session, delegation_id: str) -> bool:
+    """Revokes an active delegation context immediately."""
+    delegation = db.query(DelegationModel).filter(DelegationModel.delegation_id == delegation_id).first()
+    if not delegation:
+        return False
+    delegation.status = "REVOKED"
+    try:
+        db.commit()
+        return True
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to revoke delegation '{delegation_id}': {e}", exc_info=True)
+        raise
+

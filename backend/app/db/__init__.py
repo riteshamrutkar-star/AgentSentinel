@@ -1,6 +1,14 @@
 from app.db.base import Base
 from app.db.session import engine, SessionLocal, get_db
-from app.db.models import SessionModel, EventModel, PolicyModel, ApprovalModel, ModelMetadataModel
+from app.db.models import (
+    AgentModel,
+    ApprovalModel,
+    DelegationModel,
+    EventModel,
+    ModelMetadataModel,
+    PolicyModel,
+    SessionModel,
+)
 from app.db.crud import (
     save_security_event,
     get_security_event_by_id,
@@ -8,6 +16,15 @@ from app.db.crud import (
     get_or_create_session,
     create_policy,
     list_active_policies,
+    register_or_update_agent,
+    get_agent_by_id,
+    list_agents,
+    update_agent_status,
+    update_agent_trust,
+    create_delegation,
+    get_delegation_by_id,
+    list_delegations,
+    revoke_delegation,
 )
 
 __all__ = [
@@ -20,10 +37,22 @@ __all__ = [
     "PolicyModel",
     "ApprovalModel",
     "ModelMetadataModel",
+    "AgentModel",
+    "DelegationModel",
     "save_security_event",
     "get_security_event_by_id",
     "list_security_events",
     "get_or_create_session",
     "create_policy",
     "list_active_policies",
+    "register_or_update_agent",
+    "get_agent_by_id",
+    "list_agents",
+    "update_agent_status",
+    "update_agent_trust",
+    "create_delegation",
+    "get_delegation_by_id",
+    "list_delegations",
+    "revoke_delegation",
 ]
+

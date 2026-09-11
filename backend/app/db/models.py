@@ -147,3 +147,41 @@ class ModelMetadataModel(Base):
     metrics_json = Column(JSON, default=dict)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), default=utc_now)
+
+
+class AgentModel(Base):
+    """Stores registered AI agent identities, capabilities, trust tiers, and lifecycle states."""
+    __tablename__ = "agents"
+
+    agent_id = Column(String(64), primary_key=True, index=True)
+    name = Column(String(128), nullable=False)
+    role = Column(String(64), nullable=False, default="default_agent")
+    agent_type = Column(String(64), default="assistant")
+    owner = Column(String(64), default="system")
+    capabilities_json = Column(JSON, default=list)
+    trust_level = Column(String(32), default="STANDARD")
+    trust_score = Column(Float, default=0.60)
+    status = Column(String(32), default="ACTIVE", index=True)
+    metadata_json = Column(JSON, default=dict)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class DelegationModel(Base):
+    """Stores explicit agent-to-agent delegations, bounded capabilities, depth, and provenance."""
+    __tablename__ = "delegations"
+
+    delegation_id = Column(String(64), primary_key=True, index=True)
+    source_agent_id = Column(String(64), nullable=False, index=True)
+    target_agent_id = Column(String(64), nullable=False, index=True)
+    session_id = Column(String(64), nullable=False, index=True)
+    parent_delegation_id = Column(String(64), nullable=True)
+    delegated_capabilities_json = Column(JSON, default=list)
+    resource_scope = Column(String(256), default="*")
+    delegation_depth = Column(Integer, default=1)
+    status = Column(String(32), default="ACTIVE", index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    provenance_chain_json = Column(JSON, default=list)
+    metadata_json = Column(JSON, default=dict)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+

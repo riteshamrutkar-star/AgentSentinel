@@ -65,10 +65,15 @@ class SessionBaselineEngine:
                 t = getattr(e.task_context, "timestamp", None)
             if isinstance(t, str):
                 try:
-                    return datetime.fromisoformat(t.replace("Z", "+00:00"))
+                    dt = datetime.fromisoformat(t.replace("Z", "+00:00"))
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    return dt
                 except Exception:
                     return None
             elif isinstance(t, datetime):
+                if t.tzinfo is None:
+                    t = t.replace(tzinfo=timezone.utc)
                 return t
             return None
 
@@ -110,10 +115,14 @@ class SessionBaselineEngine:
                 if isinstance(t_stamp, str):
                     try:
                         dt = datetime.fromisoformat(t_stamp.replace("Z", "+00:00"))
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=timezone.utc)
                         timestamps.append(dt)
                     except Exception:
                         pass
                 elif isinstance(t_stamp, datetime):
+                    if t_stamp.tzinfo is None:
+                        t_stamp = t_stamp.replace(tzinfo=timezone.utc)
                     timestamps.append(t_stamp)
 
         if len(timestamps) > 1:

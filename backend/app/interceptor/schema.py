@@ -15,6 +15,9 @@ class ToolCallRequest(BaseModel):
     action_type: Optional[str] = Field("UNKNOWN", description="Action category (READ, WRITE, EXECUTE, NETWORK, DATABASE)")
     task_summary: Optional[str] = Field("", description="High-level goal summary of current agent task")
     prompt_context_summary: Optional[str] = Field("", description="Summarized prompt history context")
+    delegation_id: Optional[str] = Field(None, description="Active delegation token ID if invoked under delegated authority")
+    parent_agent_id: Optional[str] = Field(None, description="Immediate delegating agent ID")
+    origin_agent_id: Optional[str] = Field(None, description="Root initiating agent ID in delegation chain")
 
 class InterceptorResponse(BaseModel):
     """Structured security verdict returned by AgentSentinel Runtime Proxy."""

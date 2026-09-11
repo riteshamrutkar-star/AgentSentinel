@@ -14,7 +14,8 @@ import {
   Layers,
   Check,
   X,
-  Zap
+  Zap,
+  Network
 } from 'lucide-react';
 import {
   AreaChart,
@@ -28,6 +29,17 @@ import {
 } from 'recharts';
 
 const API_BASE = 'http://localhost:8000';
+
+interface AgentIdentityItem {
+  agent_id: string;
+  name: string;
+  role: string;
+  agent_type?: string;
+  capabilities: string[];
+  trust_level: string;
+  trust_score: number;
+  status: string;
+}
 
 interface KPISummary {
   total_events: number;
@@ -106,6 +118,7 @@ export function App() {
   const [events, setEvents] = useState<EventItem[]>([]);
   const [approvals, setApprovals] = useState<ApprovalItem[]>([]);
   const [activeSessions, setActiveSessions] = useState<ActiveSessionItem[]>([]);
+  const [agents, setAgents] = useState<AgentIdentityItem[]>([]);
   const [chartData, setChartData] = useState<any[]>([]);
   const [riskData, setRiskData] = useState<{ counts: Record<string, number>; percentages: Record<string, number> }>({
     counts: { LOW: 0, MEDIUM: 0, HIGH: 0, CRITICAL: 0 },
@@ -163,6 +176,12 @@ export function App() {
       const resSessions = await fetch(`${API_BASE}/api/v1/dashboard/active-sessions`);
       if (resSessions.ok) {
         setActiveSessions(await resSessions.json());
+      }
+
+      // 7. Multi-Agent Governance Directory (Phase 0.4)
+      const resAgents = await fetch(`${API_BASE}/api/v1/agents`);
+      if (resAgents.ok) {
+        setAgents(await resAgents.json());
       }
 
     } catch (err) {
@@ -266,6 +285,37 @@ export function App() {
       return <span className="badge badge-allow"><CheckCircle2 className="w-3 h-3" /> ALLOW</span>;
     }
     return <span className="badge badge-block"><Ban className="w-3 h-3" /> BLOCK</span>;
+  };
+
+  const getTrustBadge = (level: string, score: number) => {
+    const lvl = (level || '').toUpperCase();
+    const safeScore = score ?? 0.5;
+    if (lvl === 'PRIVILEGED' || lvl === 'TRUSTED') {
+      return (
+        <span className="px-2 py-0.5 rounded bg-[#10b981]/20 text-[#34d399] border border-[#10b981]/40 font-mono text-[10px] font-bold">
+          {lvl} ({safeScore.toFixed(2)})
+        </span>
+      );
+    }
+    if (lvl === 'STANDARD') {
+      return (
+        <span className="px-2 py-0.5 rounded bg-[#6366f1]/20 text-[#a5b4fc] border border-[#6366f1]/40 font-mono text-[10px] font-bold">
+          {lvl} ({safeScore.toFixed(2)})
+        </span>
+      );
+    }
+    if (lvl === 'LIMITED') {
+      return (
+        <span className="px-2 py-0.5 rounded bg-[#f59e0b]/20 text-[#fbbf24] border border-[#f59e0b]/40 font-mono text-[10px] font-bold">
+          {lvl} ({safeScore.toFixed(2)})
+        </span>
+      );
+    }
+    return (
+      <span className="px-2 py-0.5 rounded bg-[#f43f5e]/20 text-[#fb7185] border border-[#f43f5e]/40 font-mono text-[10px] font-bold">
+        {lvl || 'UNTRUSTED'} ({safeScore.toFixed(2)})
+      </span>
+    );
   };
 
   const activeChartData = chartData.length > 0 ? chartData : DEMO_CHART_DATA;
@@ -694,6 +744,75 @@ export function App() {
         </div>
       </section>
 
+      {/* ROW 5 — MULTI-AGENT GOVERNANCE & IDENTITY REGISTRY (PHASE 0.4) */}
+      <section className="card-panel p-4 space-y-3">
+        <div className="flex items-center justify-between pb-2.5 border-b border-[#1e2c47]">
+          <div className="flex items-center gap-2">
+            <Network className="w-4 h-4 text-[#818cf8]" />
+            <h2 className="text-xs font-bold uppercase tracking-wider text-white">
+              Multi-Agent Governance & Identity Registry ({agents.length})
+            </h2>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#6366f1]/20 text-[#a5b4fc] border border-[#6366f1]/40 font-mono font-semibold">
+              Phase 0.4
+            </span>
+          </div>
+          <span className="text-[11px] text-[#64748b] font-mono">Dynamic Trust & Delegation Scoping</span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {agents.length > 0 ? (
+            agents.map((agent) => (
+              <div
+                key={agent.agent_id}
+                className="p-3 bg-[#0d121f] border border-[#1e2c47] hover:border-[#6366f1]/40 rounded transition space-y-2"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="font-mono text-xs font-bold text-white">{agent.name || agent.agent_id}</div>
+                    <div className="text-[10px] font-mono text-[#64748b]">ID: {agent.agent_id}</div>
+                    <div className="text-[10px] font-mono text-[#a5b4fc] mt-0.5">Role: {agent.role}</div>
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
+                    {getTrustBadge(agent.trust_level, agent.trust_score)}
+                    <span
+                      className={`text-[9px] px-1.5 py-0.5 rounded font-mono font-bold ${
+                        agent.status === 'ACTIVE'
+                          ? 'bg-[#10b981]/15 text-[#34d399]'
+                          : 'bg-[#f43f5e]/15 text-[#fb7185]'
+                      }`}
+                    >
+                      ● {agent.status}
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <span className="text-[10px] text-[#64748b] block mb-1">Capabilities:</span>
+                  <div className="flex flex-wrap gap-1">
+                    {agent.capabilities && agent.capabilities.length > 0 ? (
+                      agent.capabilities.map((cap, idx) => (
+                        <span
+                          key={idx}
+                          className="px-1.5 py-0.5 bg-[#1a243a] text-[#c7d2fe] border border-[#2e4066] rounded text-[9px] font-mono"
+                        >
+                          {cap}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-[#64748b] text-[10px]">None assigned</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="col-span-full p-4 text-center text-[#64748b] text-xs font-mono bg-[#0d121f] rounded border border-dashed border-[#1e2c47]">
+              No agents registered in multi-agent directory.
+            </div>
+          )}
+        </div>
+      </section>
+
       {/* EVENT DETAILS PANEL (RIGHT-SIDE SLIDE-OVER DRAWER) */}
       {selectedEvent && (
         <>
@@ -822,6 +941,71 @@ export function App() {
                 </div>
               </div>
             </div>
+
+            {/* MULTI-AGENT PROVENANCE & DELEGATION (PHASE 0.4) */}
+            {selectedEvent.metadata_json?.multi_agent && (() => {
+              const ma = selectedEvent.metadata_json.multi_agent;
+              const provChain: string[] = ma.provenance_chain || [];
+              const delegatedCaps: string[] = ma.delegated_capabilities || [];
+              return (
+                <div className="space-y-2 bg-[#0d121f] p-3.5 rounded border border-[#6366f1]/40 shadow-[0_0_15px_rgba(99,102,241,0.15)]">
+                  <h3 className="text-[11px] font-bold uppercase tracking-wider text-[#a5b4fc] flex items-center gap-1.5">
+                    <Network className="w-3.5 h-3.5 text-[#818cf8]" /> Multi-Agent Governance & Provenance
+                  </h3>
+                  <div className="space-y-1.5 font-mono text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-[#64748b]">Delegation ID:</span>
+                      <span className="text-[#38bdf8] font-semibold">{ma.delegation_id || 'N/A'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-[#64748b]">Delegation Depth:</span>
+                      <span className="px-1.5 py-0.5 rounded bg-[#1e1b4b] text-[#c7d2fe] text-[10px] font-bold">
+                        Level {ma.delegation_depth ?? 1} / 3
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-[#64748b]">Origin Agent:</span>
+                      <span className="text-[#34d399] font-bold">{ma.origin_agent_id || 'N/A'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-[#64748b]">Delegator (Source):</span>
+                      <span className="text-white">{ma.source_agent_id || 'N/A'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-[#64748b]">Executing (Target):</span>
+                      <span className="text-[#f59e0b] font-bold">{ma.target_agent_id || selectedEvent.agent_id}</span>
+                    </div>
+                    {delegatedCaps.length > 0 && (
+                      <div className="mt-2">
+                        <span className="text-[#64748b] block mb-1">Delegated Capabilities:</span>
+                        <div className="flex flex-wrap gap-1">
+                          {delegatedCaps.map((cap: string, idx: number) => (
+                            <span key={idx} className="px-2 py-0.5 bg-[#4338ca]/30 text-[#c7d2fe] border border-[#6366f1]/40 rounded text-[10px] font-mono">
+                              {cap}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {provChain.length > 0 && (
+                      <div className="mt-2">
+                        <span className="text-[#64748b] block mb-1">Provenance Chain:</span>
+                        <div className="flex items-center gap-1.5 p-2 bg-[#0a0d14] rounded border border-[#1e2c47] text-[11px] text-[#a5b4fc] overflow-x-auto">
+                          {provChain.map((agent: string, idx: number) => (
+                            <span key={idx} className="flex items-center gap-1">
+                              <span className="px-1.5 py-0.5 rounded bg-[#1e293b] text-white font-mono text-[10px]">{agent}</span>
+                              {idx < provChain.length - 1 && (
+                                <span className="text-[#64748b] font-bold">→</span>
+                              )}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* PERFORMANCE */}
             <div className="space-y-2 bg-[#0d121f] p-3.5 rounded border border-[#1e2c47]">

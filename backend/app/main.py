@@ -10,6 +10,12 @@ from app.api.routes import router as api_router
 async def lifespan(app: FastAPI):
     """Lifespan event handler for application startup and shutdown."""
     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION} ({settings.ENVIRONMENT})")
+    try:
+        from app.db.base import Base
+        from app.db.session import engine
+        Base.metadata.create_all(bind=engine)
+    except Exception as e:
+        logger.warning(f"Could not auto-create tables during lifespan: {e}")
     yield
     logger.info(f"Shutting down {settings.APP_NAME}")
 
