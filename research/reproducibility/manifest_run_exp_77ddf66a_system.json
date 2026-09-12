@@ -1,0 +1,29 @@
+{
+  "manifest_id": "man_1786df18",
+  "experiment_id": "exp_77ddf66a",
+  "run_id": "run_exp_77ddf66a_system",
+  "timestamp": "2026-09-11 15:01:27.861932+00:00",
+  "software_version": "0.7.0",
+  "git_commit": "69c6960e7406fc9645e0720e29bebd421709c34f",
+  "python_version": "3.13.7",
+  "os_platform": "Windows-11-10.0.26200-SP0",
+  "db_engine": "PostgreSQL 17",
+  "config_hash": "ac696acc42a031e3c9f68e74a289ca7984e2cff768788fdfc0f6d9d4c2b7cce0",
+  "detector_weights": {
+    "WEIGHT_STATISTICAL": 0.15,
+    "WEIGHT_SEQUENCE": 0.3,
+    "WEIGHT_BURST_FREQUENCY": 0.15,
+    "WEIGHT_TOOL_TRANSITION": 0.2,
+    "WEIGHT_ROLE_MISMATCH": 0.2
+  },
+  "thresholds": {
+    "low_threshold": 0.3,
+    "medium_threshold": 0.65,
+    "high_threshold": 0.85
+  },
+  "dataset_id": "dataset-v1.0",
+  "dataset_version": "1.0.0",
+  "dataset_hash": "7f0d9505f53d12c98df35097e9ef6088757e5c5c6253280a4703f47925e00190",
+  "seed": 42,
+  "total_scenarios": 80
+}

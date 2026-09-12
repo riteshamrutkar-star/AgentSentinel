@@ -14,6 +14,7 @@ from app.api.risk import router as risk_router
 from app.api.multiagent import router as multiagent_router
 from app.api.execution import router as execution_router
 from app.api.attack import router as attack_router
+from app.api.research import router as research_router
 
 router = APIRouter()
 
@@ -37,6 +38,9 @@ router.include_router(execution_router)
 
 # Include Phase 0.6 Attack Simulation & Threat Intelligence Router
 router.include_router(attack_router)
+
+# Include Phase 0.7 Research Dataset, Experiment Engine & Publication Evidence Router
+router.include_router(research_router)
 
 # Include Phase 8 Real Agent Integration Router
 router.include_router(agent_router)

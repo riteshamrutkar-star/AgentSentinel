@@ -268,4 +268,69 @@ class SecurityFindingModel(Base):
     created_at = Column(DateTime(timezone=True), default=utc_now)
 
 
+# =============================================================================
+# Phase 0.7: Research Experiment, Run, Observation & Dataset Models
+# =============================================================================
 
+class ResearchExperimentModel(Base):
+    """Stores high-level research experiment metadata and study configuration."""
+    __tablename__ = "research_experiments"
+
+    experiment_id = Column(String(64), primary_key=True, index=True)
+    name = Column(String(128), nullable=False)
+    description = Column(Text, default="")
+    dataset_id = Column(String(64), nullable=False, index=True)
+    config_json = Column(JSON, default=dict)
+    status = Column(String(32), default="COMPLETED")
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+
+
+class ResearchRunModel(Base):
+    """Stores execution trials under specific system variants and reproducibility manifests."""
+    __tablename__ = "research_runs"
+
+    run_id = Column(String(64), primary_key=True, index=True)
+    experiment_id = Column(String(64), nullable=False, index=True)
+    variant = Column(String(64), nullable=False, index=True)
+    seed = Column(Integer, default=42)
+    total_scenarios = Column(Integer, default=0)
+    total_observations = Column(Integer, default=0)
+    f1_score = Column(Float, default=0.0)
+    precision = Column(Float, default=0.0)
+    recall = Column(Float, default=0.0)
+    detection_rate = Column(Float, default=0.0)
+    fpr = Column(Float, default=0.0)
+    latency_median_ms = Column(Float, default=0.0)
+    execution_time_ms = Column(Float, default=0.0)
+    metrics_summary_json = Column(JSON, default=dict)
+    manifest_json = Column(JSON, default=dict)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+
+
+class ResearchObservationModel(Base):
+    """Stores granular, unaggregated trial observations for empirical accountability."""
+    __tablename__ = "research_observations"
+
+    observation_id = Column(String(64), primary_key=True, index=True)
+    experiment_id = Column(String(64), nullable=False, index=True)
+    run_id = Column(String(64), nullable=False, index=True)
+    scenario_id = Column(String(64), nullable=False, index=True)
+    variant = Column(String(64), nullable=False, index=True)
+    expected_outcome = Column(String(32), nullable=False)
+    actual_outcome = Column(String(32), nullable=False)
+    attribution = Column(String(64), default="MISSED")
+    latency_ms = Column(Float, default=0.0)
+    passed = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+
+
+class ResearchDatasetModel(Base):
+    """Stores immutable metadata and SHA-256 integrity digest for benchmark datasets."""
+    __tablename__ = "research_datasets"
+
+    dataset_id = Column(String(64), primary_key=True, index=True)
+    version = Column(String(32), nullable=False)
+    description = Column(Text, default="")
+    total_scenarios = Column(Integer, default=0)
+    sha256_hash = Column(String(64), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utc_now)

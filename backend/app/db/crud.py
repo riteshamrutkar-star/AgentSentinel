@@ -1,4 +1,5 @@
-from typing import List, Optional
+import json
+from typing import Any, List, Optional
 from datetime import datetime
 from sqlalchemy.orm import Session
 from app.core.logger import logger
@@ -12,6 +13,10 @@ from app.db.models import (
     ExecutionModel,
     ModelMetadataModel,
     PolicyModel,
+    ResearchDatasetModel,
+    ResearchExperimentModel,
+    ResearchObservationModel,
+    ResearchRunModel,
     SecurityFindingModel,
     SessionModel,
 )
@@ -653,6 +658,237 @@ def list_security_findings(
 def get_security_finding_by_id(db: Session, finding_id: str) -> Optional[SecurityFindingModel]:
     """Retrieves a security finding by ID."""
     return db.query(SecurityFindingModel).filter(SecurityFindingModel.finding_id == finding_id).first()
+
+
+# =============================================================================
+# Phase 0.7: Research Experiment, Run, Observation & Dataset CRUD
+# =============================================================================
+
+def _json_safe(obj: Any) -> Any:
+    """Recursively serializes objects such as datetime into JSON-compatible primitives."""
+    if obj is None:
+        return {}
+    if isinstance(obj, (dict, list)):
+        return json.loads(json.dumps(obj, default=str))
+    return obj
+
+
+def record_research_experiment(
+    db: Optional[Session],
+    experiment_id: str,
+    name: str,
+    description: str = "",
+    dataset_id: str = "dataset-v1.0",
+    config: Optional[dict] = None,
+    status: str = "COMPLETED",
+) -> Optional[ResearchExperimentModel]:
+    """Records a research study experiment in PostgreSQL."""
+    if db is None:
+        return None
+    existing = db.query(ResearchExperimentModel).filter(ResearchExperimentModel.experiment_id == experiment_id).first()
+    if existing:
+        existing.status = status
+        db.commit()
+        return existing
+    record = ResearchExperimentModel(
+        experiment_id=experiment_id,
+        name=name,
+        description=description,
+        dataset_id=dataset_id,
+        config_json=_json_safe(config),
+        status=status,
+    )
+    try:
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+        return record
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to record research experiment '{experiment_id}': {e}", exc_info=True)
+        return None
+
+
+def get_research_experiment(db: Optional[Session], experiment_id: str) -> Optional[ResearchExperimentModel]:
+    """Retrieves a research experiment by ID."""
+    if db is None:
+        return None
+    return db.query(ResearchExperimentModel).filter(ResearchExperimentModel.experiment_id == experiment_id).first()
+
+
+def list_research_experiments(db: Optional[Session], limit: int = 50) -> List[ResearchExperimentModel]:
+    """Lists research experiments ordered by creation timestamp."""
+    if db is None:
+        return []
+    return db.query(ResearchExperimentModel).order_by(ResearchExperimentModel.created_at.desc()).limit(limit).all()
+
+
+def record_research_run(
+    db: Optional[Session],
+    run_id: str,
+    experiment_id: str,
+    variant: str,
+    seed: int = 42,
+    total_scenarios: int = 0,
+    total_observations: int = 0,
+    f1_score: float = 0.0,
+    precision: float = 0.0,
+    recall: float = 0.0,
+    detection_rate: float = 0.0,
+    fpr: float = 0.0,
+    latency_median_ms: float = 0.0,
+    execution_time_ms: float = 0.0,
+    metrics_summary: Optional[dict] = None,
+    manifest: Optional[dict] = None,
+) -> Optional[ResearchRunModel]:
+    """Records an empirical research run trial in PostgreSQL."""
+    if db is None:
+        return None
+    record = ResearchRunModel(
+        run_id=run_id,
+        experiment_id=experiment_id,
+        variant=variant,
+        seed=seed,
+        total_scenarios=total_scenarios,
+        total_observations=total_observations,
+        f1_score=f1_score,
+        precision=precision,
+        recall=recall,
+        detection_rate=detection_rate,
+        fpr=fpr,
+        latency_median_ms=latency_median_ms,
+        execution_time_ms=execution_time_ms,
+        metrics_summary_json=_json_safe(metrics_summary),
+        manifest_json=_json_safe(manifest),
+    )
+    try:
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+        return record
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to record research run '{run_id}': {e}", exc_info=True)
+        return None
+
+
+def get_research_run(db: Optional[Session], run_id: str) -> Optional[ResearchRunModel]:
+    """Retrieves a research run by ID."""
+    if db is None:
+        return None
+    return db.query(ResearchRunModel).filter(ResearchRunModel.run_id == run_id).first()
+
+
+def list_research_runs(
+    db: Optional[Session], experiment_id: Optional[str] = None, limit: int = 100
+) -> List[ResearchRunModel]:
+    """Lists research runs with optional filtering by experiment_id."""
+    if db is None:
+        return []
+    query = db.query(ResearchRunModel)
+    if experiment_id:
+        query = query.filter(ResearchRunModel.experiment_id == experiment_id)
+    return query.order_by(ResearchRunModel.created_at.desc()).limit(limit).all()
+
+
+def record_research_observation(
+    db: Optional[Session],
+    observation_id: str,
+    experiment_id: str,
+    run_id: str,
+    scenario_id: str,
+    variant: str,
+    expected_outcome: str,
+    actual_outcome: str,
+    attribution: str = "MISSED",
+    latency_ms: float = 0.0,
+    passed: bool = True,
+) -> Optional[ResearchObservationModel]:
+    """Records an unaggregated scenario observation trial."""
+    if db is None:
+        return None
+    record = ResearchObservationModel(
+        observation_id=observation_id,
+        experiment_id=experiment_id,
+        run_id=run_id,
+        scenario_id=scenario_id,
+        variant=variant,
+        expected_outcome=expected_outcome,
+        actual_outcome=actual_outcome,
+        attribution=attribution,
+        latency_ms=latency_ms,
+        passed=passed,
+    )
+    try:
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+        return record
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to record research observation '{observation_id}': {e}", exc_info=True)
+        return None
+
+
+def list_research_observations(
+    db: Optional[Session],
+    experiment_id: Optional[str] = None,
+    run_id: Optional[str] = None,
+    limit: int = 1000,
+) -> List[ResearchObservationModel]:
+    """Lists raw scenario observations."""
+    if db is None:
+        return []
+    query = db.query(ResearchObservationModel)
+    if experiment_id:
+        query = query.filter(ResearchObservationModel.experiment_id == experiment_id)
+    if run_id:
+        query = query.filter(ResearchObservationModel.run_id == run_id)
+    return query.order_by(ResearchObservationModel.created_at.asc()).limit(limit).all()
+
+
+def record_research_dataset(
+    db: Optional[Session],
+    dataset_id: str,
+    version: str,
+    description: str,
+    total_scenarios: int,
+    sha256_hash: str,
+) -> Optional[ResearchDatasetModel]:
+    """Registers or updates benchmark dataset metadata."""
+    if db is None:
+        return None
+    existing = db.query(ResearchDatasetModel).filter(ResearchDatasetModel.dataset_id == dataset_id).first()
+    if existing:
+        existing.version = version
+        existing.description = description
+        existing.total_scenarios = total_scenarios
+        existing.sha256_hash = sha256_hash
+        db.commit()
+        return existing
+    record = ResearchDatasetModel(
+        dataset_id=dataset_id,
+        version=version,
+        description=description,
+        total_scenarios=total_scenarios,
+        sha256_hash=sha256_hash,
+    )
+    try:
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+        return record
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to record research dataset '{dataset_id}': {e}", exc_info=True)
+        return None
+
+
+def get_research_dataset(db: Optional[Session], dataset_id: str) -> Optional[ResearchDatasetModel]:
+    """Retrieves dataset metadata by ID."""
+    if db is None:
+        return None
+    return db.query(ResearchDatasetModel).filter(ResearchDatasetModel.dataset_id == dataset_id).first()
 
 
 
