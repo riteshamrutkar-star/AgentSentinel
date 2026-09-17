@@ -1,20 +1,32 @@
 version: '3.8'
 
 # ==============================================================================
-# AgentSentinel — Production Stack Compose (Phase 0.8)
-# Multi-container topology: Nginx Ingress -> Backend Control Plane + Dashboard -> PostgreSQL
+# AgentSentinel — Production Distributed Topology Stack Compose (Phase 0.9)
+# Multi-container topology:
+#   Ingress (Nginx Load Balancer) -> Backend Replicas (backend-1, backend-2)
+#   Coordination (Redis 7 Alpine) + Pre-startup Migration Runner (PostgreSQL Advisory Lock)
+#   Authoritative Persistence (PostgreSQL 17)
+#
+# ARCHITECTURAL NOTICE — SINGLE POINTS OF FAILURE (SPOF):
+#   1. PostgreSQL Primary: Single database instance. Outage halts write transactions.
+#   2. Redis Coordinator: Single in-memory cache/lock instance. Outage triggers fail-closed
+#      production security controls, rejecting mutating calls until reconnection.
+#   DISTRIBUTED != HIGH AVAILABILITY: Multi-replica stateless compute does NOT constitute
+#   high availability (HA), multi-AZ clustering, or automated database failover.
 # ==============================================================================
 
 networks:
   sentinel-internal:
     driver: bridge
-    internal: true # Isolates PostgreSQL from external network ingress
+    internal: true # Isolates PostgreSQL and Redis from external network ingress
   sentinel-frontend:
     driver: bridge
 
 volumes:
   postgres_prod_data:
     name: agentsentinel_postgres_prod_data
+  redis_prod_data:
+    name: agentsentinel_redis_prod_data
   backend_logs:
     name: agentsentinel_backend_logs
   backend_backups:
@@ -58,19 +70,80 @@ services:
         max-file: "5"
 
   # ----------------------------------------------------------------------------
-  # AgentSentinel Backend Control Plane (ASGI Multi-worker)
+  # Ephemeral Distributed Coordination (Redis 7 Alpine)
+  # Ephemeral locks, sliding-window rate limit counters, event fan-out
+  # Single Point of Failure (SPOF) - fail closed in production
   # ----------------------------------------------------------------------------
-  backend:
+  redis:
+    image: redis:7-alpine
+    container_name: agentsentinel-redis-prod
+    restart: always
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "volatile-lru"]
+    volumes:
+      - redis_prod_data:/data
+    networks:
+      - sentinel-internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 384M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ----------------------------------------------------------------------------
+  # Pre-startup Migration Runner (PostgreSQL Advisory Lock Protected)
+  # ----------------------------------------------------------------------------
+  migration:
     build:
       context: ./backend
       dockerfile: Dockerfile.prod
-    container_name: agentsentinel-backend-prod
+    container_name: agentsentinel-migration-prod
+    restart: "no"
+    command: ["python", "-m", "app.db.run_migrations"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-agentsentinel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-agentsentinel}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-agentsentinel}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-agentsentinel}
+    networks:
+      - sentinel-internal
+
+  # ----------------------------------------------------------------------------
+  # AgentSentinel Backend Control Plane — Replica 1
+  # ----------------------------------------------------------------------------
+  backend-1:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    container_name: agentsentinel-backend-1-prod
     restart: always
     security_opt:
       - no-new-privileges:true
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      migration:
+        condition: service_completed_successfully
     environment:
       APP_NAME: AgentSentinel
       ENVIRONMENT: production
@@ -82,6 +155,10 @@ services:
       POSTGRES_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB:-agentsentinel}
       DATABASE_URL: postgresql://${POSTGRES_USER:-agentsentinel}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-agentsentinel}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      DISTRIBUTED_STATE_ENABLED: "true"
+      RATE_LIMIT_DISTRIBUTED: "true"
       CORS_ORIGINS: '["https://sentinel.internal"]'
       ALLOW_DEV_ANONYMOUS: "false"
       RATE_LIMIT_ENABLED: "true"
@@ -101,16 +178,79 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '2.0'
-          memory: 1536M
+          cpus: '1.5'
+          memory: 1024M
         reservations:
-          cpus: '0.5'
-          memory: 512M
+          cpus: '0.25'
+          memory: 256M
     logging:
       driver: "json-file"
       options:
-        max-size: "50m"
-        max-file: "10"
+        max-size: "30m"
+        max-file: "5"
+
+  # ----------------------------------------------------------------------------
+  # AgentSentinel Backend Control Plane — Replica 2
+  # ----------------------------------------------------------------------------
+  backend-2:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    container_name: agentsentinel-backend-2-prod
+    restart: always
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migration:
+        condition: service_completed_successfully
+    environment:
+      APP_NAME: AgentSentinel
+      ENVIRONMENT: production
+      DEBUG: "false"
+      API_SECRET_KEY: ${API_SECRET_KEY:?Production API Secret Key required}
+      POSTGRES_USER: ${POSTGRES_USER:-agentsentinel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-agentsentinel}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-agentsentinel}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-agentsentinel}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      DISTRIBUTED_STATE_ENABLED: "true"
+      RATE_LIMIT_DISTRIBUTED: "true"
+      CORS_ORIGINS: '["https://sentinel.internal"]'
+      ALLOW_DEV_ANONYMOUS: "false"
+      RATE_LIMIT_ENABLED: "true"
+      RATE_LIMIT_REQUESTS_PER_MINUTE: 60
+      RATE_LIMIT_BURST: 10
+      LOG_FORMAT: json
+      LOG_LEVEL: INFO
+      MAX_REQUEST_SIZE_BYTES: 10485760
+      DB_POOL_SIZE: 10
+      DB_MAX_OVERFLOW: 20
+    volumes:
+      - backend_logs:/app/logs
+      - backend_backups:/app/backups
+    networks:
+      - sentinel-internal
+      - sentinel-frontend
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1024M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "30m"
+        max-file: "5"
 
   # ----------------------------------------------------------------------------
   # Frontend SOC Dashboard (Static SPA served by unprivileged Nginx)
@@ -154,7 +294,8 @@ services:
     volumes:
       - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - backend
+      - backend-1
+      - backend-2
       - dashboard
     networks:
       - sentinel-frontend

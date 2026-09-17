@@ -19,14 +19,16 @@ from app.api.auth import router as auth_router
 from app.api.alerts import router as alerts_router
 from app.api.metrics import router as metrics_router
 from app.api.health import router as health_router
+from app.api.distributed import router as distributed_router
 
 router = APIRouter()
 
-# Include Phase 0.8 Production Operational, Health & Metrics Routers
+# Include Phase 0.8 & Phase 0.9 Operational, Distributed & Health Routers
 router.include_router(health_router)
 router.include_router(metrics_router)
 router.include_router(auth_router)
 router.include_router(alerts_router)
+router.include_router(distributed_router)
 
 # Include Phase 4/5 Interceptor & Policy Router
 router.include_router(intercept_router)

@@ -1,20 +1,17 @@
 """
-AgentSentinel Phase 0.8: In-Memory Sliding-Window Rate Limiter.
+AgentSentinel Phase 0.9: Unified Rate Limiter & Sliding-Window Engine.
+Supports both process-local in-memory tracking (for dev/test single worker)
+and atomic horizontally distributed tracking backed by Redis.
 
-ARCHITECTURAL NOTICE:
-This rate limiter is implemented as an in-memory, thread-safe sliding window
-appropriate for the current single-worker deployment model.
-It is process-local and NOT a globally coordinated distributed rate limiter:
-- Single-worker instance = effective instance-local limiter (recommended for Phase 0.8)
-- Multiple workers in one container = separate limiter state per worker process
-- Multiple container replicas = separate limiter state per replica
-- Distributed cluster-wide rate limiting requires a shared state backend (e.g. Redis)
-  in a future phase.
+ARCHITECTURAL BEHAVIOR:
+- Single-instance / dev / test: Uses LocalStateBackend (process-local sliding window).
+- Multi-instance / cluster production: Uses RedisStateBackend (atomic Redis Lua script).
+- Fail-closed in production: If Redis is required and unreachable in production mode,
+  requests are rejected (fail-closed) rather than silently downgraded.
 """
 
 import time
 import threading
-from collections import defaultdict
 from typing import Dict, List, Tuple, Optional
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -23,12 +20,20 @@ from starlette.types import ASGIApp
 
 from app.core.config import settings
 from app.core.logger import logger
+from app.distributed.state import (
+    DistributedStateBackend,
+    LocalStateBackend,
+    get_state_backend,
+)
+from app.distributed.redis import RedisConnectionError
+
+config = settings
 
 
-class InMemoryRateLimiter:
+class RateLimiter:
     """
-    Thread-safe in-memory sliding-window token counter.
-    Tracks request timestamps within a 60-second window per (client_key, endpoint_category).
+    Unified sliding-window rate limiter.
+    Delegates atomic window counter evaluation to a DistributedStateBackend.
     """
 
     def __init__(
@@ -36,80 +41,87 @@ class InMemoryRateLimiter:
         window_seconds: int = 60,
         requests_per_minute: Optional[int] = None,
         burst: Optional[int] = None,
+        backend: Optional[DistributedStateBackend] = None,
     ):
         self.window_seconds = window_seconds
         self.requests_per_minute = requests_per_minute
         self.burst = burst
-        self._lock = threading.Lock()
-        # Map: category_key -> list of timestamp floats
-        self._history: Dict[str, List[float]] = defaultdict(list)
+        self._backend = backend
+
+    @property
+    def backend(self) -> DistributedStateBackend:
+        if self._backend is None:
+            self._backend = get_state_backend()
+        return self._backend
 
     @property
     def is_distributed(self) -> bool:
-        return False
+        return self.backend.is_distributed
 
     @classmethod
     def get_architecture_notice(cls) -> str:
         return (
-            "ARCHITECTURAL NOTICE: This rate limiter is implemented as an in-memory, "
-            "thread-safe sliding window appropriate for single-instance deployments. "
-            "It is NOT a globally coordinated distributed rate limiter."
+            "ARCHITECTURAL NOTICE: AgentSentinel Rate Limiter supports dual modes: "
+            "LocalStateBackend for single-instance development (which is NOT a globally coordinated distributed rate limiter) "
+            "and RedisStateBackend for horizontally coordinated multi-replica production deployments."
         )
 
     def check_rate_limit(self, client_id: str, endpoint_path: str = "/api/v1/test") -> Tuple[bool, int, int]:
         """Convenience method returning (allowed, remaining, retry_after)."""
-        category, limit = self._resolve_limit(endpoint_path)
-        if self.burst is not None:
-            limit = self.burst
-
-        key = f"{client_id}:{category}"
-        now = time.time()
-        window_start = now - self.window_seconds
-
-        with self._lock:
-            timestamps = [t for t in self._history[key] if t > window_start]
-            count = len(timestamps)
-
-            if count >= limit:
-                oldest = timestamps[0]
-                retry_after = max(1, int(self.window_seconds - (now - oldest)))
-                self._history[key] = timestamps
-                return False, 0, retry_after
-
-            timestamps.append(now)
-            self._history[key] = timestamps
-            remaining = max(0, limit - len(timestamps))
-            return True, remaining, 0
+        is_limited, limit, remaining, retry_after = self.is_rate_limited(client_id, endpoint_path)
+        return not is_limited, remaining, retry_after
 
     def is_rate_limited(self, client_id: str, endpoint_path: str) -> Tuple[bool, int, int, int]:
         """
         Determines whether the client has exceeded the rate limit for the given endpoint.
         Returns: (is_limited, limit, remaining, retry_after_seconds)
         """
-        if settings.TESTING or not settings.RATE_LIMIT_ENABLED:
+        if self._backend is None and (settings.TESTING or not settings.RATE_LIMIT_ENABLED):
             return False, 10000, 10000, 0
 
-        category, limit = self._resolve_limit(endpoint_path)
-        key = f"{client_id}:{category}"
-        now = time.time()
-        window_start = now - self.window_seconds
+        if type(self) is InMemoryRateLimiter and self.burst is not None:
+            limit = self.burst
+            category = "burst"
+        elif self.requests_per_minute is not None:
+            limit = self.requests_per_minute
+            category = "custom"
+        else:
+            category, limit = self._resolve_limit(endpoint_path)
+            if self.burst is not None:
+                limit = self.burst
 
-        with self._lock:
-            # Purge timestamps older than sliding window
-            timestamps = [t for t in self._history[key] if t > window_start]
-            count = len(timestamps)
+        rate_key = f"ratelimit:{client_id}:{category}"
 
-            if count >= limit:
-                # Oldest timestamp in window determines retry delay
-                oldest = timestamps[0]
-                retry_after = max(1, int(self.window_seconds - (now - oldest)))
-                self._history[key] = timestamps
-                return True, limit, 0, retry_after
+        env = getattr(config, "ENVIRONMENT", getattr(settings, "ENVIRONMENT", "development"))
+        is_prod = env == "production"
 
-            timestamps.append(now)
-            self._history[key] = timestamps
-            remaining = max(0, limit - len(timestamps))
-            return False, limit, remaining, 0
+        try:
+            if hasattr(self.backend, "sliding_window_counter") and callable(getattr(self.backend, "sliding_window_counter")):
+                allowed, count, remaining = self.backend.sliding_window_counter(
+                    key=rate_key,
+                    window_seconds=self.window_seconds,
+                    max_requests=limit,
+                )
+                is_limited = not allowed
+                retry_after = self.window_seconds if is_limited else 0
+                return is_limited, limit, remaining, retry_after
+            else:
+                return self.backend.check_sliding_window(
+                    key=rate_key,
+                    limit=limit,
+                    window_seconds=self.window_seconds,
+                )
+        except RedisConnectionError as rce:
+            logger.critical(f"Fail-closed rate limiting enforced: {rce}")
+            if is_prod:
+                raise rce
+            return True, limit, 0, 60
+        except Exception as e:
+            logger.error(f"Rate limiting backend error on '{endpoint_path}': {e}")
+            if is_prod:
+                raise e
+            # Dev fallback
+            return False, limit, limit, 0
 
     def _resolve_limit(self, path: str) -> Tuple[str, int]:
         """Maps endpoint paths to category quotas."""
@@ -128,18 +140,48 @@ class InMemoryRateLimiter:
         return "general_api", 600
 
     def reset(self) -> None:
-        """Clears all stored rate limit history (useful for testing)."""
-        with self._lock:
-            self._history.clear()
+        """Clears all stored rate limit history."""
+        try:
+            self.backend.clear()
+        except Exception as e:
+            logger.warning(f"Error resetting rate limiter backend: {e}")
 
 
-global_rate_limiter = InMemoryRateLimiter()
+class InMemoryRateLimiter(RateLimiter):
+    """
+    Backwards-compatible in-memory rate limiter for single-worker tests.
+    Explicitly forces LocalStateBackend.
+    """
+
+    def __init__(
+        self,
+        window_seconds: int = 60,
+        requests_per_minute: Optional[int] = None,
+        burst: Optional[int] = None,
+    ):
+        super().__init__(
+            window_seconds=window_seconds,
+            requests_per_minute=requests_per_minute,
+            burst=burst,
+            backend=LocalStateBackend(),
+        )
+
+
+class DistributedRateLimiter(RateLimiter):
+    """
+    Production distributed rate limiter utilizing the globally configured state backend.
+    """
+    pass
+
+
+# Global singleton rate limiter instance
+global_rate_limiter = DistributedRateLimiter()
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """FastAPI/Starlette middleware enforcing endpoint rate limiting."""
 
-    def __init__(self, app: ASGIApp, limiter: Optional[InMemoryRateLimiter] = None):
+    def __init__(self, app: ASGIApp, limiter: Optional[RateLimiter] = None):
         super().__init__(app)
         self.limiter = limiter or global_rate_limiter
 

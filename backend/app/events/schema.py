@@ -103,3 +103,4 @@ class SecurityEventSchema(BaseModel):
     decision_context: DecisionContext
     execution_context: ExecutionContext
     audit_context: AuditContext
+    namespace: str = Field("default", description="Durable tenant/namespace boundary")

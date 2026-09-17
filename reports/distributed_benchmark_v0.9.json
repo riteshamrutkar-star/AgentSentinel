@@ -1,0 +1,49 @@
+{
+  "benchmark_version": "0.9.0",
+  "phase": "v0.9",
+  "timestamp": "2026-09-17T17:31:22Z",
+  "topology": {
+    "cluster_mode": "Horizontally Scalable Control Plane",
+    "coordination_backend": "DistributedStateBackend (RedisStateBackend / LocalStateBackend)",
+    "persistence_layer": "PostgreSQL 17 (Durable Entity Boundaries)",
+    "spof_disclosure": "Single Redis coordinator and single PostgreSQL primary"
+  },
+  "interceptor_throughput": {
+    "workers": 10,
+    "total_requests": 150,
+    "total_time_seconds": 1.672,
+    "throughput_req_per_sec": 89.7,
+    "latency_mean_ms": 102.9,
+    "latency_p50_ms": 94.25,
+    "latency_p95_ms": 148.83,
+    "latency_p99_ms": 423.73
+  },
+  "distributed_locking": {
+    "contenders": 10,
+    "total_acquisitions": 80,
+    "successful_acquisitions": 80,
+    "max_concurrent_in_critical_section": 1,
+    "mutual_exclusion_violations": 0,
+    "acquisition_latency_mean_ms": 15.28,
+    "acquisition_latency_p95_ms": 135.31,
+    "correctness": true
+  },
+  "sliding_window_rate_limiting": {
+    "workers": 10,
+    "total_requests": 150,
+    "configured_quota": 50,
+    "allowed_requests": 50,
+    "blocked_requests": 100,
+    "quota_enforced_strictly": true,
+    "leakage_count": 0
+  },
+  "idempotency_deduplication": {
+    "concurrency": 10,
+    "total_requests": 100,
+    "actual_executions": 1,
+    "cached_deduplications": 99,
+    "duplicate_execution_rate_pct": 0.0,
+    "deduplication_p95_latency_ms": 10.63,
+    "zero_duplication_guarantee": true
+  }
+}

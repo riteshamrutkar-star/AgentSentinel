@@ -41,6 +41,7 @@ class DelegationManager:
         expires_at: Optional[datetime] = None,
         provenance_chain: Optional[List[str]] = None,
         metadata: Optional[dict] = None,
+        namespace: str = "default",
         db: Optional[Session] = None,
     ) -> DelegationContext:
         """Issues a new verified DelegationContext token."""
@@ -53,6 +54,7 @@ class DelegationManager:
             source_agent_id=source_agent_id,
             target_agent_id=target_agent_id,
             session_id=session_id,
+            namespace=namespace,
             parent_delegation_id=parent_delegation_id,
             delegated_capabilities=delegated_capabilities,
             resource_scope=resource_scope,
@@ -81,13 +83,14 @@ class DelegationManager:
                     expires_at=expires_at,
                     provenance_chain=chain,
                     metadata=meta,
+                    namespace=namespace,
                 )
             except Exception as e:
                 logger.warning(f"Failed to persist delegation '{del_id}' to PostgreSQL: {e}")
 
         logger.info(
             f"Delegation issued: ID='{del_id}' | {source_agent_id} -> {target_agent_id} | "
-            f"Caps={[c.value for c in delegated_capabilities]} | Depth={delegation_depth}"
+            f"Caps={[c.value for c in delegated_capabilities]} | Depth={delegation_depth} | Namespace='{namespace}'"
         )
         return context
 
@@ -111,6 +114,7 @@ class DelegationManager:
                     source_agent_id=db_del.source_agent_id,
                     target_agent_id=db_del.target_agent_id,
                     session_id=db_del.session_id,
+                    namespace=getattr(db_del, "namespace", "default") or "default",
                     parent_delegation_id=db_del.parent_delegation_id,
                     delegated_capabilities=caps,
                     resource_scope=db_del.resource_scope,

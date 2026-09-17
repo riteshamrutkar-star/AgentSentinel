@@ -18,6 +18,7 @@ class ToolCallRequest(BaseModel):
     delegation_id: Optional[str] = Field(None, description="Active delegation token ID if invoked under delegated authority")
     parent_agent_id: Optional[str] = Field(None, description="Immediate delegating agent ID")
     origin_agent_id: Optional[str] = Field(None, description="Root initiating agent ID in delegation chain")
+    namespace: str = Field("default", description="Tenant or environment namespace")
 
 class InterceptorResponse(BaseModel):
     """Structured security verdict returned by AgentSentinel Runtime Proxy."""
@@ -29,4 +30,5 @@ class InterceptorResponse(BaseModel):
     latency_ms: float = Field(0.0, description="Total interception and security evaluation latency in ms")
     stored: bool = Field(True, description="True if event is recorded in PostgreSQL database")
     trace_id: str = Field(..., description="Distributed tracing ID")
+    namespace: str = Field("default", description="Tenant or environment namespace")
     timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat(), description="ISO UTC timestamp")

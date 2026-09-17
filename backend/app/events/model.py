@@ -37,9 +37,11 @@ class SecurityEvent:
         action_type: ActionType = ActionType.UNKNOWN,
         task_summary: str = "",
         prompt_context_summary: str = "",
+        namespace: str = "default",
         event_id: Optional[str] = None,
     ):
         event_uuid = event_id or f"evt_{uuid.uuid4().hex[:12]}"
+        self.namespace = namespace or "default"
         
         self.identity = IdentityContext(
             event_id=event_uuid,
@@ -140,6 +142,7 @@ class SecurityEvent:
             decision_context=self.decision_context,
             execution_context=self.execution_context,
             audit_context=self.audit_context,
+            namespace=self.namespace,
         )
 
     def to_dict(self) -> Dict[str, Any]:

@@ -22,6 +22,7 @@ class SessionModel(Base):
     __tablename__ = "sessions"
 
     session_id = Column(String(64), primary_key=True, index=True)
+    namespace = Column(String(128), default="default", nullable=False, index=True)
     agent_id = Column(String(64), nullable=False, index=True)
     user_id = Column(String(64), nullable=False, index=True)
     role = Column(String(64), default="default_agent")
@@ -38,6 +39,7 @@ class EventModel(Base):
     __tablename__ = "security_events"
 
     event_id = Column(String(64), primary_key=True, index=True)
+    namespace = Column(String(128), default="default", nullable=False, index=True)
     session_id = Column(String(64), ForeignKey("sessions.session_id"), nullable=False, index=True)
     timestamp = Column(DateTime(timezone=True), default=utc_now, index=True)
 
@@ -107,6 +109,7 @@ class PolicyModel(Base):
     __tablename__ = "policies"
 
     policy_id = Column(String(64), primary_key=True, default=lambda: f"pol_{uuid.uuid4().hex[:8]}")
+    namespace = Column(String(128), default="default", nullable=False, index=True)
     policy_name = Column(String(128), nullable=False)
     description = Column(Text, default="")
     role = Column(String(64), default="*")
@@ -124,6 +127,7 @@ class ApprovalModel(Base):
     __tablename__ = "approvals"
 
     approval_id = Column(String(64), primary_key=True, default=lambda: f"appr_{uuid.uuid4().hex[:8]}")
+    namespace = Column(String(128), default="default", nullable=False, index=True)
     event_id = Column(String(64), ForeignKey("security_events.event_id"), nullable=False, index=True)
     requested_at = Column(DateTime(timezone=True), default=utc_now)
     reviewed_at = Column(DateTime(timezone=True), nullable=True)
@@ -154,6 +158,7 @@ class AgentModel(Base):
     __tablename__ = "agents"
 
     agent_id = Column(String(64), primary_key=True, index=True)
+    namespace = Column(String(128), default="default", nullable=False, index=True)
     name = Column(String(128), nullable=False)
     role = Column(String(64), nullable=False, default="default_agent")
     agent_type = Column(String(64), default="assistant")
@@ -172,6 +177,7 @@ class DelegationModel(Base):
     __tablename__ = "delegations"
 
     delegation_id = Column(String(64), primary_key=True, index=True)
+    namespace = Column(String(128), default="default", nullable=False, index=True)
     source_agent_id = Column(String(64), nullable=False, index=True)
     target_agent_id = Column(String(64), nullable=False, index=True)
     session_id = Column(String(64), nullable=False, index=True)
@@ -191,6 +197,7 @@ class ExecutionModel(Base):
     __tablename__ = "executions"
 
     execution_id = Column(String(64), primary_key=True, index=True)
+    namespace = Column(String(128), default="default", nullable=False, index=True)
     session_id = Column(String(64), nullable=False, index=True)
     agent_id = Column(String(64), nullable=False, index=True)
     tool_name = Column(String(64), nullable=False, index=True)
@@ -211,6 +218,7 @@ class AttackScenarioModel(Base):
     __tablename__ = "attack_scenarios"
 
     scenario_id = Column(String(64), primary_key=True, index=True)
+    namespace = Column(String(128), default="default", nullable=False, index=True)
     name = Column(String(128), nullable=False)
     category = Column(String(64), nullable=False, index=True)
     severity = Column(String(32), nullable=False, default="MEDIUM")
@@ -231,6 +239,7 @@ class AttackRunModel(Base):
     __tablename__ = "attack_runs"
 
     run_id = Column(String(64), primary_key=True, index=True)
+    namespace = Column(String(128), default="default", nullable=False, index=True)
     scenario_id = Column(String(64), nullable=False, index=True)
     category = Column(String(64), nullable=False, index=True)
     baseline_type = Column(String(64), nullable=False, default="SYSTEM_D_FULL_AGENTSENTINEL")
@@ -254,6 +263,7 @@ class SecurityFindingModel(Base):
     __tablename__ = "security_findings"
 
     finding_id = Column(String(64), primary_key=True, index=True)
+    namespace = Column(String(128), default="default", nullable=False, index=True)
     run_id = Column(String(64), nullable=False, index=True)
     scenario_id = Column(String(64), nullable=False, index=True)
     category = Column(String(64), nullable=False, index=True)
@@ -349,6 +359,7 @@ class ApiKeyModel(Base):
     key_hash = Column(String(64), nullable=False, unique=True, index=True)  # SHA-256 hash of secret token
     name = Column(String(128), nullable=False)
     role = Column(String(32), nullable=False, default="VIEWER", index=True)  # VIEWER, OPERATOR, SECURITY_ADMIN, PLATFORM_ADMIN
+    allowed_namespaces_json = Column(JSON, default=list)  # Defaults to ["*"] if empty/wildcard
     is_active = Column(Boolean, default=True, index=True)
     expires_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utc_now)
@@ -362,6 +373,7 @@ class SecurityAlertModel(Base):
     __tablename__ = "security_alerts"
 
     alert_id = Column(String(64), primary_key=True, index=True)
+    namespace = Column(String(128), default="default", nullable=False, index=True)
     alert_type = Column(String(64), nullable=False, index=True)
     severity = Column(String(32), nullable=False, default="MEDIUM", index=True)  # LOW, MEDIUM, HIGH, CRITICAL
     title = Column(String(256), nullable=False)
@@ -385,4 +397,41 @@ class SchemaMigrationModel(Base):
     version = Column(Integer, primary_key=True)
     name = Column(String(128), nullable=False)
     applied_at = Column(DateTime(timezone=True), default=utc_now)
+
+
+# =============================================================================
+# Phase 0.9: Distributed Outbox & Durable Webhook Delivery Models
+# =============================================================================
+
+class EventOutboxModel(Base):
+    """Stores durable outbox records for asynchronous SIEM/webhook/fan-out delivery."""
+    __tablename__ = "event_outbox"
+
+    outbox_id = Column(String(64), primary_key=True, index=True)
+    event_id = Column(String(64), nullable=False, index=True)
+    event_type = Column(String(64), nullable=False, index=True)
+    namespace = Column(String(128), default="default", nullable=False, index=True)
+    payload_json = Column(JSON, nullable=False)
+    status = Column(String(32), default="PENDING", nullable=False, index=True)  # PENDING, DISPATCHED, FAILED
+    created_at = Column(DateTime(timezone=True), default=utc_now, index=True)
+    dispatched_at = Column(DateTime(timezone=True), nullable=True)
+    retry_count = Column(Integer, default=0)
+    last_error = Column(Text, nullable=True)
+
+
+class WebhookDeliveryModel(Base):
+    """Durable state for webhook deliveries that survives process and broker restarts."""
+    __tablename__ = "webhook_deliveries"
+
+    delivery_id = Column(String(64), primary_key=True, index=True)
+    event_id = Column(String(64), nullable=False, index=True)
+    destination = Column(String(512), nullable=False)
+    namespace = Column(String(128), default="default", nullable=False, index=True)
+    attempt_count = Column(Integer, default=0)
+    status = Column(String(32), default="PENDING", nullable=False, index=True)  # PENDING, PROCESSING, DELIVERED, FAILED, DEAD_LETTER
+    next_attempt_at = Column(DateTime(timezone=True), default=utc_now, index=True)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now, index=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
 

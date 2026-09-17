@@ -28,6 +28,7 @@ def normalize_tool_call_request(request: ToolCallRequest) -> SecurityEvent:
         action_type=action_type_enum,
         task_summary=request.task_summary or "",
         prompt_context_summary=request.prompt_context_summary or "",
+        namespace=getattr(request, "namespace", "default") or "default",
     )
 
     return security_event

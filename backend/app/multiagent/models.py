@@ -61,6 +61,7 @@ class AgentIdentity(BaseModel):
     trust_level: TrustLevel = Field(TrustLevel.STANDARD, description="Assigned trust tier")
     trust_score: float = Field(0.60, ge=0.0, le=1.0, description="Normalized trust score (0.0 to 1.0)")
     status: AgentStatus = Field(AgentStatus.ACTIVE, description="Current lifecycle status")
+    namespace: str = Field("default", description="Namespace security boundary")
     created_at: datetime = Field(default_factory=utc_now, description="UTC registration timestamp")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Arbitrary non-sensitive agent metadata")
 
@@ -81,6 +82,7 @@ class AgentMessage(BaseModel):
     sender_agent_id: str = Field(..., description="Initiating agent ID")
     recipient_agent_id: str = Field(..., description="Target agent ID")
     session_id: str = Field(..., description="Workflow session identifier")
+    namespace: str = Field("default", description="Namespace security boundary")
     parent_message_id: Optional[str] = Field(None, description="Parent message in conversation/delegation tree")
     timestamp: datetime = Field(default_factory=utc_now, description="Message dispatch timestamp")
     message_type: MessageType = Field(MessageType.DELEGATION_REQUEST, description="Category of agent message")
@@ -97,6 +99,7 @@ class DelegationContext(BaseModel):
     source_agent_id: str = Field(..., description="Delegating agent ID")
     target_agent_id: str = Field(..., description="Delegated agent ID")
     session_id: str = Field(..., description="Associated workflow session")
+    namespace: str = Field("default", description="Namespace security boundary")
     parent_delegation_id: Optional[str] = Field(None, description="Parent delegation token if sub-delegated")
     delegated_capabilities: List[AgentCapability] = Field(..., description="Constrained capabilities granted to delegatee")
     resource_scope: str = Field("*", description="Target resource or path pattern restriction")

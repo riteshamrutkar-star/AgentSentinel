@@ -14,6 +14,7 @@ def create_security_event(
     action_type: ActionType = ActionType.UNKNOWN,
     task_summary: str = "",
     prompt_context_summary: str = "",
+    namespace: str = "default",
 ) -> SecurityEvent:
     """Instantiates a new raw SecurityEvent from intercepted tool call arguments."""
     return SecurityEvent(
@@ -28,6 +29,7 @@ def create_security_event(
         action_type=action_type,
         task_summary=task_summary,
         prompt_context_summary=prompt_context_summary,
+        namespace=namespace,
     )
 
 def enrich_event_security(

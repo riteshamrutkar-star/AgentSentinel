@@ -1,5 +1,5 @@
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -171,3 +171,102 @@ async def handle_reject_action(
         }
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+class ReviewResolveRequest(BaseModel):
+    decision: str = Field(..., description="Verdict: APPROVE or REJECT")
+    reviewer: str = Field("operator", description="Identity of reviewer")
+    notes: str = Field("", description="Review comments")
+
+
+@router.post("/approvals/{approval_id}/resolve", summary="Resolve Approval Request with Idempotency")
+async def handle_resolve_approval(
+    approval_id: str,
+    review: ReviewResolveRequest,
+    idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
+    identity: AuthenticatedIdentity = Depends(require_role(AdminRole.OPERATOR)),
+    db: Session = Depends(get_db),
+):
+    """
+    Resolves a pending approval with APPROVE or REJECT.
+    Enforces namespace authorization and protects against mutation duplicate replays via Idempotency-Key.
+    """
+    import json
+    from app.distributed.idempotency import (
+        global_idempotency_manager,
+        IdempotencyConflictError,
+        IdempotencyInProgressError,
+        IdempotencyUnavailableError,
+    )
+
+    scope = f"approval_resolve:{approval_id}"
+    if idempotency_key:
+        try:
+            cached, record = global_idempotency_manager.check_or_start(
+                idempotency_key=idempotency_key,
+                scope=scope,
+                payload=review.model_dump(),
+            )
+            if cached and record and record.response_body:
+                return json.loads(record.response_body)
+        except IdempotencyConflictError as ice:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(ice))
+        except IdempotencyInProgressError as ipe:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(ipe))
+        except IdempotencyUnavailableError as iue:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(iue))
+
+    appr = get_approval_by_id(db, approval_id)
+    if not appr:
+        appr = get_approval_by_event_id(db, approval_id)
+
+    if not appr:
+        if idempotency_key:
+            global_idempotency_manager.fail(idempotency_key, scope)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Approval record '{approval_id}' not found.")
+
+    # Cross-namespace authorization verification
+    appr_ns = getattr(appr, "namespace", "default") or "default"
+    if not identity.can_access_namespace(appr_ns):
+        if idempotency_key:
+            global_idempotency_manager.fail(idempotency_key, scope)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Namespace authorization failed: Identity '{identity.identity_id}' cannot resolve approvals in namespace '{appr_ns}'.",
+        )
+
+    dec = review.decision.strip().upper()
+    try:
+        if dec in ("APPROVE", "APPROVED"):
+            updated_event = approve_action(db, event_id=appr.event_id, reviewer=review.reviewer, notes=review.notes)
+        elif dec in ("REJECT", "REJECTED"):
+            updated_event = reject_action(db, event_id=appr.event_id, reviewer=review.reviewer, notes=review.notes)
+        else:
+            if idempotency_key:
+                global_idempotency_manager.fail(idempotency_key, scope)
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid decision '{review.decision}'. Must be APPROVE or REJECT.")
+    except Exception as e:
+        if idempotency_key:
+            global_idempotency_manager.fail(idempotency_key, scope)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Approval resolution failed: {e}")
+
+    result = {
+        "status": "success",
+        "approval_id": approval_id,
+        "event_id": appr.event_id,
+        "namespace": appr_ns,
+        "decision": updated_event.approval_status,
+        "execution_allowed": updated_event.execution_allowed,
+        "reviewer": updated_event.reviewer,
+    }
+
+    if idempotency_key:
+        global_idempotency_manager.complete(
+            idempotency_key=idempotency_key,
+            scope=scope,
+            response_code=200,
+            response_body=json.dumps(result),
+        )
+
+    return result
+

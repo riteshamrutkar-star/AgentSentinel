@@ -5,7 +5,7 @@ pre-execution validation, and secure tool execution through the gateway.
 """
 
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -98,6 +98,7 @@ class ExecutionRunRequest(BaseModel):
     delegation_id: Optional[str] = Field(None, description="Delegation token if invoked under delegation")
     approval_id: Optional[str] = Field(None, description="Approval event ID if action was approved")
     resource_scope: str = Field("", description="Target resource identifier or path")
+    namespace: str = Field("default", description="Durable tenant or environment namespace")
     timeout_seconds: float = Field(10.0, ge=0.1, le=60.0, description="Execution timeout bounding")
 
 
@@ -282,12 +283,44 @@ def validate_execution(payload: ExecutionValidateRequest, db: Session = Depends(
     )
 
 
+@router.post("/execution/submit", response_model=Dict[str, Any])
 @router.post("/execution/run", response_model=Dict[str, Any])
-def run_execution(payload: ExecutionRunRequest, db: Session = Depends(get_db)):
+def run_execution(
+    payload: ExecutionRunRequest,
+    idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
+    db: Session = Depends(get_db),
+):
     """
     Executes an authorized tool strictly through the SecureExecutionGateway.
-    Enforces all 14 execution checks, profile sandboxing, and output secret redaction.
+    Enforces all 14 execution checks, profile sandboxing, output secret redaction,
+    durable namespace boundaries, and idempotency protection against duplicate replays.
     """
+    import json
+    from app.distributed.idempotency import (
+        global_idempotency_manager,
+        IdempotencyConflictError,
+        IdempotencyInProgressError,
+        IdempotencyUnavailableError,
+    )
+
+    scope = f"execution_submit:{payload.agent_id}:{payload.tool_id}"
+
+    if idempotency_key:
+        try:
+            cached, record = global_idempotency_manager.check_or_start(
+                idempotency_key=idempotency_key,
+                scope=scope,
+                payload=payload.model_dump(),
+            )
+            if cached and record and record.response_body:
+                return json.loads(record.response_body)
+        except IdempotencyConflictError as ice:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(ice))
+        except IdempotencyInProgressError as ipe:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(ipe))
+        except IdempotencyUnavailableError as iue:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(iue))
+
     context = ExecutionContext(
         execution_id=f"exec_{uuid_short()}",
         agent_id=payload.agent_id,
@@ -302,9 +335,14 @@ def run_execution(payload: ExecutionRunRequest, db: Session = Depends(get_db)):
         timeout_seconds=payload.timeout_seconds,
     )
 
-    output: ExecutionOutput = default_execution_gateway.execute(context=context, db=db)
+    try:
+        output: ExecutionOutput = default_execution_gateway.execute(context=context, db=db)
+    except Exception as exec_err:
+        if idempotency_key:
+            global_idempotency_manager.fail(idempotency_key=idempotency_key, scope=scope)
+        raise
 
-    return {
+    res_dict = {
         "execution_id": output.execution_id,
         "status": output.status.value,
         "output": output.sanitized_output,
@@ -315,7 +353,18 @@ def run_execution(payload: ExecutionRunRequest, db: Session = Depends(get_db)):
         "detected_secrets": output.detected_secrets,
         "error_message": output.error_message,
         "metadata": output.metadata,
+        "namespace": payload.namespace,
     }
+
+    if idempotency_key:
+        global_idempotency_manager.complete(
+            idempotency_key=idempotency_key,
+            scope=scope,
+            response_code=200,
+            response_body=json.dumps(res_dict),
+        )
+
+    return res_dict
 
 
 @router.get("/execution/{execution_id}", response_model=Dict[str, Any])

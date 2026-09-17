@@ -1,7 +1,9 @@
 import json
+import uuid
 from typing import Any, List, Optional
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
+from app.core.config import settings
 from app.core.logger import logger
 from app.db.models import (
     AgentModel,
@@ -11,6 +13,7 @@ from app.db.models import (
     AttackScenarioModel,
     DelegationModel,
     EventModel,
+    EventOutboxModel,
     ExecutionModel,
     ModelMetadataModel,
     PolicyModel,
@@ -22,6 +25,7 @@ from app.db.models import (
     SecurityAlertModel,
     SecurityFindingModel,
     SessionModel,
+    WebhookDeliveryModel,
 )
 from app.events.model import SecurityEvent
 
@@ -34,6 +38,7 @@ def get_or_create_session(
     user_id: str,
     role: str = "default_agent",
     framework_name: str = "LangChain",
+    namespace: str = "default",
 ) -> Optional[SessionModel]:
     """Retrieves existing session or creates a new session record with rollback protection."""
     if db is None:
@@ -42,6 +47,7 @@ def get_or_create_session(
     if not db_session:
         db_session = SessionModel(
             session_id=session_id,
+            namespace=namespace or "default",
             agent_id=agent_id,
             user_id=user_id,
             role=role,
@@ -64,6 +70,9 @@ def save_security_event(db: Optional[Session], security_event: SecurityEvent) ->
     """Persists a Phase 3A SecurityEvent model into PostgreSQL with transaction rollback safety."""
     if db is None:
         return None
+    
+    event_ns = getattr(security_event, "namespace", "default") or "default"
+
     # Ensure parent session exists
     get_or_create_session(
         db=db,
@@ -72,12 +81,14 @@ def save_security_event(db: Optional[Session], security_event: SecurityEvent) ->
         user_id=security_event.identity.user_id,
         role=security_event.identity.role,
         framework_name=security_event.identity.framework_name,
+        namespace=event_ns,
     )
 
     schema_dict = security_event.to_dict()
 
     db_event = EventModel(
         event_id=security_event.identity.event_id,
+        namespace=event_ns,
         session_id=security_event.identity.session_id,
         agent_id=security_event.identity.agent_id,
         user_id=security_event.identity.user_id,
@@ -128,6 +139,30 @@ def save_security_event(db: Optional[Session], security_event: SecurityEvent) ->
 
     try:
         db.add(db_event)
+
+        # Transactional Outbox (Phase 0.9): PostgreSQL remains the authoritative source of truth
+        outbox_entry = EventOutboxModel(
+            outbox_id=f"out_{uuid.uuid4().hex[:12]}",
+            event_id=db_event.event_id,
+            event_type="security_decision",
+            namespace=event_ns,
+            payload_json=schema_dict,
+            status="PENDING",
+        )
+        db.add(outbox_entry)
+
+        # If webhooks are enabled, provision durable delivery records
+        if settings.WEBHOOK_ENABLED and settings.WEBHOOK_URLS:
+            for dest_url in settings.WEBHOOK_URLS:
+                wh_delivery = WebhookDeliveryModel(
+                    delivery_id=f"whd_{uuid.uuid4().hex[:12]}",
+                    event_id=db_event.event_id,
+                    destination=dest_url,
+                    namespace=event_ns,
+                    status="PENDING",
+                )
+                db.add(wh_delivery)
+
         db.commit()
         db.refresh(db_event)
         return db_event
@@ -144,14 +179,17 @@ def list_security_events(
     db: Optional[Session],
     session_id: Optional[str] = None,
     limit: int = 50,
-    offset: int = 0
+    offset: int = 0,
+    namespace: Optional[str] = None,
 ) -> List[EventModel]:
-    """Lists security events with optional session filtering."""
+    """Lists security events with optional session and namespace filtering."""
     if not db:
         return []
     query = db.query(EventModel)
     if session_id:
         query = query.filter(EventModel.session_id == session_id)
+    if namespace and namespace != "*":
+        query = query.filter(EventModel.namespace == namespace)
     return query.order_by(EventModel.timestamp.desc()).offset(offset).limit(limit).all()
 
 # --- Policy CRUD ---
@@ -208,6 +246,7 @@ def register_or_update_agent(
     trust_score: float = 0.60,
     status: str = "ACTIVE",
     metadata: Optional[dict] = None,
+    namespace: str = "default",
 ) -> AgentModel:
     """Registers a new agent or updates an existing agent identity record."""
     agent = db.query(AgentModel).filter(AgentModel.agent_id == agent_id).first()
@@ -225,6 +264,7 @@ def register_or_update_agent(
             trust_level=trust_level,
             trust_score=trust_score,
             status=status,
+            namespace=namespace,
             metadata_json=meta,
         )
         db.add(agent)
@@ -237,6 +277,8 @@ def register_or_update_agent(
         agent.trust_level = trust_level
         agent.trust_score = trust_score
         agent.status = status
+        if namespace:
+            agent.namespace = namespace
         agent.metadata_json = meta
 
     try:
@@ -254,11 +296,13 @@ def get_agent_by_id(db: Session, agent_id: str) -> Optional[AgentModel]:
     return db.query(AgentModel).filter(AgentModel.agent_id == agent_id).first()
 
 
-def list_agents(db: Session, status: Optional[str] = None) -> List[AgentModel]:
-    """Lists registered agents, optionally filtered by operational status."""
+def list_agents(db: Session, status: Optional[str] = None, namespace: Optional[str] = None) -> List[AgentModel]:
+    """Lists registered agents, optionally filtered by operational status and namespace."""
     query = db.query(AgentModel)
     if status:
         query = query.filter(AgentModel.status == status)
+    if namespace:
+        query = query.filter(AgentModel.namespace == namespace)
     return query.order_by(AgentModel.created_at.asc()).all()
 
 
@@ -308,6 +352,7 @@ def create_delegation(
     expires_at: Optional[datetime] = None,
     provenance_chain: Optional[List[str]] = None,
     metadata: Optional[dict] = None,
+    namespace: str = "default",
 ) -> DelegationModel:
     """Persists a new delegation record in PostgreSQL."""
     chain = provenance_chain if provenance_chain is not None else [source_agent_id, target_agent_id]
@@ -326,6 +371,7 @@ def create_delegation(
         expires_at=expires_at,
         provenance_chain_json=chain,
         metadata_json=meta,
+        namespace=namespace,
     )
     try:
         db.add(delegation)
@@ -346,14 +392,17 @@ def get_delegation_by_id(db: Session, delegation_id: str) -> Optional[Delegation
 def list_delegations(
     db: Session,
     session_id: Optional[str] = None,
-    status: Optional[str] = None
+    status: Optional[str] = None,
+    namespace: Optional[str] = None,
 ) -> List[DelegationModel]:
-    """Lists delegation records with optional session and status filtering."""
+    """Lists delegation records with optional session, status, and namespace filtering."""
     query = db.query(DelegationModel)
     if session_id:
         query = query.filter(DelegationModel.session_id == session_id)
     if status:
         query = query.filter(DelegationModel.status == status)
+    if namespace:
+        query = query.filter(DelegationModel.namespace == namespace)
     return query.order_by(DelegationModel.created_at.desc()).all()
 
 
@@ -389,6 +438,7 @@ def create_execution_record(
     detected_secrets: Optional[List[str]] = None,
     error_message: Optional[str] = None,
     sanitized_output_preview: Optional[str] = None,
+    namespace: str = "default",
 ) -> ExecutionModel:
     """Records a secure tool execution attempt with runtime metrics and redactions."""
     record = ExecutionModel(
@@ -405,6 +455,7 @@ def create_execution_record(
         detected_secrets_json=detected_secrets or [],
         error_message=error_message,
         sanitized_output_preview=sanitized_output_preview,
+        namespace=namespace,
     )
     try:
         db.add(record)
@@ -905,18 +956,21 @@ def create_api_key_record(
     key_hash: str,
     name: str,
     role: str = "VIEWER",
+    allowed_namespaces: Optional[List[str]] = None,
     expires_at: Optional[datetime] = None,
     created_by: str = "system",
 ) -> Optional[ApiKeyModel]:
-    """Persists a new hashed API key record."""
+    """Persists a new hashed API key record with scoped authorized namespaces."""
     if db is None:
         return None
+    ns_list = allowed_namespaces if allowed_namespaces is not None else ["*"]
     record = ApiKeyModel(
         key_id=key_id,
         key_prefix=key_prefix,
         key_hash=key_hash,
         name=name,
         role=role,
+        allowed_namespaces_json=ns_list,
         is_active=True,
         expires_at=expires_at,
         created_by=created_by,
@@ -1053,8 +1107,9 @@ def list_security_alerts(
     status: Optional[str] = None,
     severity: Optional[str] = None,
     limit: int = 50,
+    namespace: Optional[str] = None,
 ) -> List[SecurityAlertModel]:
-    """Lists operational security alerts with optional status and severity filtering."""
+    """Lists operational security alerts with optional status, severity, and namespace filtering."""
     if db is None:
         return []
     query = db.query(SecurityAlertModel)
@@ -1062,6 +1117,8 @@ def list_security_alerts(
         query = query.filter(SecurityAlertModel.status == status)
     if severity:
         query = query.filter(SecurityAlertModel.severity == severity)
+    if namespace and namespace != "*":
+        query = query.filter(SecurityAlertModel.namespace == namespace)
     return query.order_by(SecurityAlertModel.last_seen_at.desc()).limit(limit).all()
 
 

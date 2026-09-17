@@ -43,6 +43,7 @@ class AuthService:
         cls,
         name: str,
         role: AdminRole = AdminRole.VIEWER,
+        allowed_namespaces: Optional[List[str]] = None,
         expires_in_days: Optional[int] = None,
         created_by: str = "system",
         db: Optional[Session] = None,
@@ -62,6 +63,8 @@ class AuthService:
         if expires_in_days is not None:
             expires_at = utc_now() + timedelta(days=expires_in_days)
 
+        ns_list = allowed_namespaces if allowed_namespaces is not None else ["*"]
+
         record = create_api_key_record(
             db=db,
             key_id=key_id,
@@ -69,6 +72,7 @@ class AuthService:
             key_hash=key_hash,
             name=name,
             role=role.value,
+            allowed_namespaces=ns_list,
             expires_at=expires_at,
             created_by=created_by,
         )

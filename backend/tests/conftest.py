@@ -1,5 +1,14 @@
 import os
+import sys
+from pathlib import Path
 import pytest
+
+# Add project root and sdk to sys.path so tests can import agentsentinel SDK
+project_root = Path(__file__).resolve().parent.parent.parent
+sdk_path = project_root / "sdk"
+if str(sdk_path) not in sys.path:
+    sys.path.insert(0, str(sdk_path))
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool

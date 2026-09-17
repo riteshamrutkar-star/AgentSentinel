@@ -144,11 +144,12 @@ class AgentRegistry:
                     trust_score=agent.trust_score,
                     status=agent.status.value,
                     metadata=agent.metadata,
+                    namespace=agent.namespace,
                 )
             except Exception as e:
                 logger.warning(f"Failed to persist agent '{agent.agent_id}' to PostgreSQL: {e}")
 
-        logger.info(f"Agent registered: ID='{agent.agent_id}', Role='{agent.role}', Trust='{agent.trust_level.value}'")
+        logger.info(f"Agent registered: ID='{agent.agent_id}', Role='{agent.role}', Trust='{agent.trust_level.value}', Namespace='{agent.namespace}'")
         return agent
 
     def get_agent(self, agent_id: str, db: Optional[Session] = None) -> Optional[AgentIdentity]:
@@ -182,6 +183,7 @@ class AgentRegistry:
                     trust_level=trust_lvl,
                     trust_score=db_agent.trust_score,
                     status=AgentStatus(db_agent.status),
+                    namespace=getattr(db_agent, "namespace", "default") or "default",
                     created_at=db_agent.created_at,
                     metadata=db_agent.metadata_json or {},
                 )
@@ -225,16 +227,19 @@ class AgentRegistry:
         logger.warning(f"SECURITY EVENT: Agent '{agent_id}' has been REVOKED.")
         return True
 
-    def list_agents(self, db: Optional[Session] = None) -> List[AgentIdentity]:
-        """Returns all registered agents."""
+    def list_agents(self, db: Optional[Session] = None, namespace: Optional[str] = None) -> List[AgentIdentity]:
+        """Returns all registered agents, optionally filtered by namespace."""
         if db:
-            db_agents = db_list_agents(db)
+            db_agents = db_list_agents(db, namespace=namespace)
             if db_agents:
                 for db_agent in db_agents:
                     if db_agent.agent_id not in self._cache:
                         self.get_agent(db_agent.agent_id, db)
 
-        return list(self._cache.values())
+        res = list(self._cache.values())
+        if namespace:
+            res = [a for a in res if a.namespace == namespace]
+        return res
 
     def update_agent_trust_score(
         self,

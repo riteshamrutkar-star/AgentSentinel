@@ -41,6 +41,7 @@ class AgentRegistrationRequest(BaseModel):
     owner: str = Field("system", description="Owner or launching principal")
     capabilities: List[str] = Field(default_factory=list, description="Authorized capabilities (e.g. SEARCH, FILE_READ)")
     trust_level: str = Field("STANDARD", description="UNTRUSTED, LIMITED, STANDARD, TRUSTED, PRIVILEGED")
+    namespace: str = Field("default", description="Namespace security boundary")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Agent metadata")
 
 
@@ -52,6 +53,7 @@ class DelegationIssueRequest(BaseModel):
     action_name: str = Field(..., description="Task or action description")
     capabilities: List[str] = Field(..., description="Capabilities to delegate")
     provenance: Optional[List[str]] = Field(None, description="Current delegation provenance chain")
+    namespace: str = Field("default", description="Namespace security boundary")
 
 
 class InterceptMessageRequest(BaseModel):
@@ -64,6 +66,7 @@ class InterceptMessageRequest(BaseModel):
     parent_message_id: Optional[str] = Field(None, description="Parent message in chain")
     payload_metadata: Dict[str, Any] = Field(default_factory=dict, description="Sanitized metadata")
     provenance: Optional[List[str]] = Field(None, description="Provenance chain")
+    namespace: str = Field("default", description="Namespace security boundary")
 
 
 # --- Agent Identity Endpoints ---
@@ -71,10 +74,11 @@ class InterceptMessageRequest(BaseModel):
 @router.get("/agents", response_model=List[AgentIdentity], summary="List Registered Agents")
 async def list_registered_agents(
     status_filter: Optional[str] = None,
+    namespace: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     """Returns all agents registered in the AgentSentinel directory."""
-    agents = default_agent_registry.list_agents(db)
+    agents = default_agent_registry.list_agents(db, namespace=namespace)
     if status_filter:
         agents = [a for a in agents if a.status.value.upper() == status_filter.upper()]
     return agents
@@ -118,6 +122,7 @@ async def register_new_agent(
         trust_level=trust_tier,
         trust_score=score,
         status=AgentStatus.ACTIVE,
+        namespace=payload.namespace,
         created_at=utc_now(),
         metadata=payload.metadata,
     )
@@ -203,6 +208,7 @@ async def intercept_agent_message(
         sender_agent_id=payload.sender_agent_id,
         recipient_agent_id=payload.recipient_agent_id,
         session_id=payload.session_id,
+        namespace=payload.namespace,
         parent_message_id=payload.parent_message_id,
         timestamp=utc_now(),
         message_type=MessageType.DELEGATION_REQUEST,
@@ -241,6 +247,7 @@ async def request_task_delegation(
         sender_agent_id=payload.source_agent_id,
         recipient_agent_id=payload.target_agent_id,
         session_id=payload.session_id,
+        namespace=payload.namespace,
         timestamp=utc_now(),
         message_type=MessageType.DELEGATION_REQUEST,
         requested_action=payload.action_name,

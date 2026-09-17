@@ -35,6 +35,7 @@ class SecurityAlertResponse(BaseModel):
     threat_category: Optional[str] = None
     status: AlertStatus
     occurrence_count: int
+    namespace: str = "default"
     first_seen_at: datetime
     last_seen_at: datetime
     resolved_at: Optional[datetime] = None

@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     )
 
     APP_NAME: str = "AgentSentinel"
-    APP_VERSION: str = "0.8.0"
+    APP_VERSION: str = "0.9.0"
     ENVIRONMENT: str = "development"  # "development", "testing", "production"
     DEBUG: bool = True
     TESTING: bool = False
@@ -42,6 +42,41 @@ class Settings(BaseSettings):
     RATE_LIMIT_ENABLED: bool = True
     RATE_LIMIT_REQUESTS_PER_MINUTE: int = 60
     RATE_LIMIT_BURST: int = 10
+
+    # Distributed State & Redis Settings (Phase 0.9)
+    DISTRIBUTED_STATE_ENABLED: bool = False
+    RATE_LIMIT_DISTRIBUTED: bool = False
+    REDIS_HOST: str = "127.0.0.1"
+    REDIS_PORT: int = 6379
+    REDIS_PASSWORD: Optional[str] = None
+    REDIS_DB: int = 0
+    REDIS_URL: Optional[str] = None
+    REDIS_CONNECT_TIMEOUT: float = 2.0
+    REDIS_SOCKET_TIMEOUT: float = 2.0
+    REDIS_PREFIX: str = "agentsentinel:"
+
+    # Operator Identity Federation / OIDC (Phase 0.9)
+    OIDC_ENABLED: bool = False
+    OIDC_ISSUER: Optional[str] = None
+    OIDC_CLIENT_ID: Optional[str] = None
+    OIDC_CLIENT_SECRET: Optional[str] = None
+    OIDC_JWKS_URI: Optional[str] = None
+    OIDC_ROLE_CLAIM: str = "roles"
+    OIDC_ALGORITHMS: List[str] = ["RS256"]
+
+    # Security Event Webhooks & SIEM (Phase 0.9)
+    WEBHOOK_ENABLED: bool = False
+    WEBHOOK_URLS: List[str] = []
+    WEBHOOK_SIGNING_SECRET: str = "default-webhook-secret-min32-chars-long-here"
+    WEBHOOK_TIMEOUT_SECONDS: float = 5.0
+    WEBHOOK_MAX_RETRIES: int = 3
+    SIEM_ENABLED: bool = False
+    SIEM_TYPE: str = "generic_http"  # "generic_http" or "datadog"
+    SIEM_ENDPOINT: Optional[str] = None
+    SIEM_API_KEY: Optional[str] = None
+
+    # Multi-Tenancy / Namespace (Phase 0.9)
+    DEFAULT_NAMESPACE: str = "default"
 
     # PostgreSQL Database Configuration & Connection Pool Bounds
     POSTGRES_USER: str = "postgres"

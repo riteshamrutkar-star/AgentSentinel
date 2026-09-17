@@ -81,6 +81,28 @@ class AgentMessageInterceptor:
             sender = self.registry.get_agent(message.sender_agent_id, db)
             recipient = self.registry.get_agent(message.recipient_agent_id, db)
 
+            # 2.5 Validate Namespace Boundary Isolation
+            if sender and sender.namespace != message.namespace:
+                return self._create_block_decision(
+                    message=message,
+                    reason=f"NAMESPACE_VIOLATION: Sender agent '{message.sender_agent_id}' is registered in namespace '{sender.namespace}', cannot operate in requested namespace '{message.namespace}'.",
+                    escalation_detected=False,
+                    trust_score=sender.trust_score,
+                    risk_score=0.95,
+                    start_time=start_time,
+                    db=db,
+                )
+            if recipient and recipient.namespace != message.namespace:
+                return self._create_block_decision(
+                    message=message,
+                    reason=f"CROSS_NAMESPACE_DELEGATION_PROHIBITED: Recipient agent '{message.recipient_agent_id}' belongs to namespace '{recipient.namespace}', differing from delegation namespace '{message.namespace}'.",
+                    escalation_detected=True,
+                    trust_score=sender.trust_score if sender else 0.5,
+                    risk_score=0.95,
+                    start_time=start_time,
+                    db=db,
+                )
+
             # 3. Check Circular Delegation Loop
             provenance = list(message.provenance) if message.provenance else [message.sender_agent_id]
             is_circular, circular_msg = self.escalation_detector.check_circular_delegation(
@@ -192,6 +214,7 @@ class AgentMessageInterceptor:
                 parent_delegation_id=message.parent_message_id,
                 provenance_chain=new_chain,
                 metadata=message.payload_metadata,
+                namespace=message.namespace,
                 db=db,
             )
 
@@ -313,6 +336,7 @@ class AgentMessageInterceptor:
                 target_resource=message.recipient_agent_id,
                 action_type=ActionType.NETWORK,
                 task_summary=message.requested_action,
+                namespace=message.namespace,
             )
 
             policy_res = (
