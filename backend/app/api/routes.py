@@ -15,8 +15,18 @@ from app.api.multiagent import router as multiagent_router
 from app.api.execution import router as execution_router
 from app.api.attack import router as attack_router
 from app.api.research import router as research_router
+from app.api.auth import router as auth_router
+from app.api.alerts import router as alerts_router
+from app.api.metrics import router as metrics_router
+from app.api.health import router as health_router
 
 router = APIRouter()
+
+# Include Phase 0.8 Production Operational, Health & Metrics Routers
+router.include_router(health_router)
+router.include_router(metrics_router)
+router.include_router(auth_router)
+router.include_router(alerts_router)
 
 # Include Phase 4/5 Interceptor & Policy Router
 router.include_router(intercept_router)

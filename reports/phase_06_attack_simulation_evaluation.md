@@ -1,5 +1,5 @@
 # AgentSentinel Phase 0.6: Security Validation & Attack Simulation Benchmark Report
-**Benchmark Run ID**: `bench_fa9e2d2c` | **Timestamp**: `2026-09-12T05:49:45.684589+00:00`
+**Benchmark Run ID**: `bench_d7f34f52` | **Timestamp**: `2026-09-17T10:30:21.897739+00:00`
 
 ## 1. Executive Summary
 - **Total Scenarios Evaluated**: 25
@@ -13,9 +13,9 @@
 | Baseline Architecture | Tested | Blocked | Allowed | Prevention Rate | FP Rate | F1 Score | Avg Latency |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **System A: Unprotected (Safe Reference)** | 25 | 0 | 25 | 0.0% | 0.0% | 0.00 | 0.1 ms |
-| **System B: Static Policy Only** | 25 | 9 | 16 | 47.4% | 0.0% | 0.64 | 11.6 ms |
-| **System C: Policy + Behavioral Risk** | 25 | 9 | 16 | 47.4% | 0.0% | 0.64 | 9.9 ms |
-| **System D: Full AgentSentinel** | 25 | 20 | 5 | 100.0% | 16.7% | 0.97 | 13.2 ms |
+| **System B: Static Policy Only** | 25 | 9 | 16 | 47.4% | 0.0% | 0.64 | 14.0 ms |
+| **System C: Policy + Behavioral Risk** | 25 | 9 | 16 | 47.4% | 0.0% | 0.64 | 13.3 ms |
+| **System D: Full AgentSentinel** | 25 | 20 | 5 | 100.0% | 16.7% | 0.97 | 14.9 ms |
 
 ## 3. Comparative Control Effectiveness Matrix (17 Threat Categories)
 | Category | Primary Defense Control | Sys A (Unprotected) | Sys B (Static) | Sys C (Behavioral) | Sys D (Full Sentinel) |

@@ -334,3 +334,55 @@ class ResearchDatasetModel(Base):
     total_scenarios = Column(Integer, default=0)
     sha256_hash = Column(String(64), nullable=False)
     created_at = Column(DateTime(timezone=True), default=utc_now)
+
+
+# =============================================================================
+# Phase 0.8: Authentication, Security Alerts & Schema Migrations Models
+# =============================================================================
+
+class ApiKeyModel(Base):
+    """Stores hashed API credentials, roles, and lifecycle revocation status."""
+    __tablename__ = "api_keys"
+
+    key_id = Column(String(64), primary_key=True, index=True)
+    key_prefix = Column(String(16), nullable=False, index=True)  # Safe visible identifier, e.g. as_live_ab12
+    key_hash = Column(String(64), nullable=False, unique=True, index=True)  # SHA-256 hash of secret token
+    name = Column(String(128), nullable=False)
+    role = Column(String(32), nullable=False, default="VIEWER", index=True)  # VIEWER, OPERATOR, SECURITY_ADMIN, PLATFORM_ADMIN
+    is_active = Column(Boolean, default=True, index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    created_by = Column(String(64), default="system")
+
+
+class SecurityAlertModel(Base):
+    """Stores aggregated, deduplicated operational security alerts and triage state."""
+    __tablename__ = "security_alerts"
+
+    alert_id = Column(String(64), primary_key=True, index=True)
+    alert_type = Column(String(64), nullable=False, index=True)
+    severity = Column(String(32), nullable=False, default="MEDIUM", index=True)  # LOW, MEDIUM, HIGH, CRITICAL
+    title = Column(String(256), nullable=False)
+    description = Column(Text, default="")
+    source_event_id = Column(String(64), nullable=True, index=True)
+    source_agent_id = Column(String(64), nullable=True, index=True)
+    threat_category = Column(String(64), nullable=True)
+    status = Column(String(32), nullable=False, default="NEW", index=True)  # NEW, ACKNOWLEDGED, RESOLVED, DISMISSED
+    occurrence_count = Column(Integer, default=1)
+    first_seen_at = Column(DateTime(timezone=True), default=utc_now)
+    last_seen_at = Column(DateTime(timezone=True), default=utc_now)
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+    resolved_by = Column(String(64), nullable=True)
+    resolution_notes = Column(Text, nullable=True)
+
+
+class SchemaMigrationModel(Base):
+    """Tracks applied deterministic database schema revisions."""
+    __tablename__ = "schema_migrations"
+
+    version = Column(Integer, primary_key=True)
+    name = Column(String(128), nullable=False)
+    applied_at = Column(DateTime(timezone=True), default=utc_now)
+

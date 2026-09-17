@@ -136,6 +136,31 @@ def intercept_tool_call(request: ToolCallRequest, db: Session) -> InterceptorRes
         final_verdict = security_event.decision_context.policy_result.value
         decision_str = "BLOCK" if final_verdict == "DENY" else final_verdict
 
+        # Step 6: Observability metrics & Security alert integration
+        try:
+            from app.observability.metrics import metrics_registry
+            metrics_registry.tool_calls_total.inc(verdict=decision_str)
+            if decision_str == "BLOCK":
+                from app.alerts.service import alert_engine
+                alert_engine.check_and_alert_policy_block(
+                    event_id=security_event.identity.event_id,
+                    agent_id=security_event.identity.agent_id,
+                    tool_name=security_event.tool_context.tool_name,
+                    policy_name=security_event.decision_context.decision_reason or "SECURITY_POLICY",
+                    db=db,
+                )
+            if anomaly_result and anomaly_result.is_anomalous:
+                from app.alerts.service import alert_engine
+                alert_engine.check_and_alert_critical_anomaly(
+                    event_id=security_event.identity.event_id,
+                    agent_id=security_event.identity.agent_id,
+                    anomaly_score=anomaly_result.anomaly_score,
+                    level=anomaly_result.anomaly_level.value,
+                    db=db,
+                )
+        except Exception as e:
+            logger.debug(f"Observability hook notice: {e}")
+
         return InterceptorResponse(
             event_id=security_event.identity.event_id,
             decision=decision_str,

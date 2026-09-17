@@ -1,0 +1,29 @@
+{
+  "manifest_id": "man_5f463796",
+  "experiment_id": "exp_4d44dbc0",
+  "run_id": "run_exp_4d44dbc0_system_d_full_agentsentinel",
+  "timestamp": "2026-09-16 17:19:03.175788+00:00",
+  "software_version": "0.7.0",
+  "git_commit": "d9bf16b7cc7d2d092319824575402853f4035127",
+  "python_version": "3.13.7",
+  "os_platform": "Windows-11-10.0.26200-SP0",
+  "db_engine": "PostgreSQL 17",
+  "config_hash": "274f59c631475ae7a70ce06d0db3c8841e74bb3d0b2ef8288f4e7edf782c40f7",
+  "detector_weights": {
+    "WEIGHT_STATISTICAL": 0.15,
+    "WEIGHT_SEQUENCE": 0.3,
+    "WEIGHT_BURST_FREQUENCY": 0.15,
+    "WEIGHT_TOOL_TRANSITION": 0.2,
+    "WEIGHT_ROLE_MISMATCH": 0.2
+  },
+  "thresholds": {
+    "low_threshold": 0.3,
+    "medium_threshold": 0.65,
+    "high_threshold": 0.85
+  },
+  "dataset_id": "dataset-v1.0",
+  "dataset_version": "1.0.0",
+  "dataset_hash": "7f0d9505f53d12c98df35097e9ef6088757e5c5c6253280a4703f47925e00190",
+  "seed": 42,
+  "total_scenarios": 80
+}

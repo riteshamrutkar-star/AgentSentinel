@@ -19,6 +19,11 @@ class PolicyEngine:
         # Sort rules by priority ascending (lower number = higher precedence)
         self.rules: List[PolicyRule] = sorted(rules_list, key=lambda r: r.priority)
 
+    @property
+    def policies(self) -> List[PolicyRule]:
+        """Backward-compatible alias for rules."""
+        return self.rules
+
     def _matches_pattern(self, pattern: str, value: str) -> bool:
         """Helper to match wildcard or pipe-delimited pattern strings."""
         if not pattern or pattern == "*":

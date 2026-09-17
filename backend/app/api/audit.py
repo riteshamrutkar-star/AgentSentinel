@@ -12,6 +12,8 @@ from app.audit.repository import (
 from app.audit.service import approve_action, reject_action
 from app.db.crud import get_security_event_by_id
 from app.db.session import get_db
+from app.auth.models import AdminRole, AuthenticatedIdentity
+from app.auth.dependencies import require_role
 
 router = APIRouter(prefix="/api/v1/audit", tags=["Audit Trails & Approvals"])
 
@@ -25,6 +27,7 @@ async def get_audit_events(
     decision_result: Optional[str] = Query(None, description="Filter by decision (ALLOW, DENY, REQUIRE_APPROVAL, APPROVED, REJECTED)"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    identity: AuthenticatedIdentity = Depends(require_role(AdminRole.VIEWER)),
     db: Session = Depends(get_db)
 ):
     """Lists audit log event records with optional filters."""
@@ -129,6 +132,7 @@ async def get_approval_details(
 async def handle_approve_action(
     event_id: str,
     review: ReviewActionRequest,
+    identity: AuthenticatedIdentity = Depends(require_role(AdminRole.OPERATOR)),
     db: Session = Depends(get_db)
 ):
     """Approves a pending REQUIRE_APPROVAL action, updating event execution status to permitted."""
@@ -150,6 +154,7 @@ async def handle_approve_action(
 async def handle_reject_action(
     event_id: str,
     review: ReviewActionRequest,
+    identity: AuthenticatedIdentity = Depends(require_role(AdminRole.OPERATOR)),
     db: Session = Depends(get_db)
 ):
     """Rejects a pending REQUIRE_APPROVAL action, keeping execution blocked."""

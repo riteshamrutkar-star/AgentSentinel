@@ -1,0 +1,125 @@
+name: AgentSentinel CI Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  # ============================================================================
+  # 1. Backend Verification & Test Suite
+  # ============================================================================
+  backend-test:
+    name: Backend Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: agentsentinel
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgrespassword
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install pytest pytest-asyncio
+
+      - name: Check Schema Migrations (Idempotence & Safety)
+        env:
+          PYTHONPATH: backend
+          DATABASE_URL: postgresql://postgres:postgrespassword@localhost:5432/agentsentinel
+          ENVIRONMENT: testing
+          API_SECRET_KEY: ci_test_secret_key_32_characters_minimum_entropy_12345
+        run: |
+          python -m app.db.migrations
+
+      - name: Run Test Suite
+        env:
+          PYTHONPATH: backend
+          DATABASE_URL: postgresql://postgres:postgrespassword@localhost:5432/agentsentinel
+          ENVIRONMENT: testing
+          API_SECRET_KEY: ci_test_secret_key_32_characters_minimum_entropy_12345
+          ALLOW_DEV_ANONYMOUS: "true"
+        run: |
+          pytest backend/tests/ -v
+
+      - name: Validate Backup & Restore Tooling
+        env:
+          PYTHONPATH: backend
+          DATABASE_URL: postgresql://postgres:postgrespassword@localhost:5432/agentsentinel
+          ENVIRONMENT: testing
+          API_SECRET_KEY: ci_test_secret_key_32_characters_minimum_entropy_12345
+        run: |
+          python scripts/backup_db.py --output-dir ./backups
+          BACKUP_FILE=$(ls -t backups/*.json | head -1)
+          python scripts/restore_db.py "$BACKUP_FILE" --verify-only
+
+  # ============================================================================
+  # 2. Frontend Build & TypeScript Verification
+  # ============================================================================
+  frontend-build:
+    name: Frontend Build & TypeScript Check
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: dashboard
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: TypeScript type-check and Vite production build
+        run: npm run build
+
+  # ============================================================================
+  # 3. Docker Compose Configuration Validation
+  # ============================================================================
+  docker-validation:
+    name: Docker Stack Configuration Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate Docker Compose Production File
+        env:
+          API_SECRET_KEY: dummy_prod_secret_key_validation_only_123456789
+          POSTGRES_PASSWORD: dummy_postgres_password
+        run: |
+          docker compose -f docker-compose.prod.yml config --quiet

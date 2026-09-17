@@ -1,0 +1,69 @@
+# ==============================================================================
+# AgentSentinel — Production Backend Dockerfile (Phase 0.8)
+# Multi-stage, unprivileged (UID 10001), minimal attack surface, health-checked
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Stage 1: Build Dependencies
+# ------------------------------------------------------------------------------
+FROM python:3.11-slim AS builder
+
+WORKDIR /build
+
+# Install build dependencies required for compiling C extensions (e.g. psycopg2)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy and install python dependencies into a isolated directory
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# ------------------------------------------------------------------------------
+# Stage 2: Minimal Unprivileged Runtime
+# ------------------------------------------------------------------------------
+FROM python:3.11-slim AS runtime
+
+# Set operational environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
+    ENVIRONMENT=production \
+    APP_NAME=AgentSentinel
+
+# Install minimal runtime dependencies (libpq5 for PostgreSQL and curl for healthcheck)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create unprivileged system user and group (UID/GID 10001)
+RUN groupadd -g 10001 agentsentinel && \
+    useradd -u 10001 -g agentsentinel -s /sbin/nologin -d /app -M agentsentinel
+
+WORKDIR /app
+
+# Copy installed python packages from builder stage
+COPY --from=builder /install /usr/local
+
+# Copy application source code with restricted permissions
+COPY --chown=agentsentinel:agentsentinel app /app/app
+
+# Create necessary directories for operational runtime
+RUN mkdir -p /app/logs /app/backups && \
+    chown -R agentsentinel:agentsentinel /app
+
+# Drop root privileges permanently
+USER agentsentinel
+
+# Expose internal ASGI service port
+EXPOSE 8000
+
+# Health check configuration targeting the Phase 0.8 liveness probe
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8000/health/live || exit 1
+
+# Production entrypoint using Uvicorn with a single worker (enforces instance-local in-memory rate limiting)
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--proxy-headers", "--forwarded-allow-ips", "*", "--no-access-log"]

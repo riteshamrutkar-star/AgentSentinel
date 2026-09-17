@@ -1,0 +1,173 @@
+version: '3.8'
+
+# ==============================================================================
+# AgentSentinel — Production Stack Compose (Phase 0.8)
+# Multi-container topology: Nginx Ingress -> Backend Control Plane + Dashboard -> PostgreSQL
+# ==============================================================================
+
+networks:
+  sentinel-internal:
+    driver: bridge
+    internal: true # Isolates PostgreSQL from external network ingress
+  sentinel-frontend:
+    driver: bridge
+
+volumes:
+  postgres_prod_data:
+    name: agentsentinel_postgres_prod_data
+  backend_logs:
+    name: agentsentinel_backend_logs
+  backend_backups:
+    name: agentsentinel_backend_backups
+
+services:
+  # ----------------------------------------------------------------------------
+  # PostgreSQL 17 Relational Database (Internal Isolated Network)
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: postgres:17-alpine
+    container_name: agentsentinel-postgres-prod
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-agentsentinel}
+      POSTGRES_USER: ${POSTGRES_USER:-agentsentinel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Database password required}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+    networks:
+      - sentinel-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agentsentinel} -d ${POSTGRES_DB:-agentsentinel}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1024M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  # ----------------------------------------------------------------------------
+  # AgentSentinel Backend Control Plane (ASGI Multi-worker)
+  # ----------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    container_name: agentsentinel-backend-prod
+    restart: always
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      APP_NAME: AgentSentinel
+      ENVIRONMENT: production
+      DEBUG: "false"
+      API_SECRET_KEY: ${API_SECRET_KEY:?Production API Secret Key required}
+      POSTGRES_USER: ${POSTGRES_USER:-agentsentinel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-agentsentinel}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-agentsentinel}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-agentsentinel}
+      CORS_ORIGINS: '["https://sentinel.internal"]'
+      ALLOW_DEV_ANONYMOUS: "false"
+      RATE_LIMIT_ENABLED: "true"
+      RATE_LIMIT_REQUESTS_PER_MINUTE: 60
+      RATE_LIMIT_BURST: 10
+      LOG_FORMAT: json
+      LOG_LEVEL: INFO
+      MAX_REQUEST_SIZE_BYTES: 10485760
+      DB_POOL_SIZE: 10
+      DB_MAX_OVERFLOW: 20
+    volumes:
+      - backend_logs:/app/logs
+      - backend_backups:/app/backups
+    networks:
+      - sentinel-internal
+      - sentinel-frontend
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1536M
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "10"
+
+  # ----------------------------------------------------------------------------
+  # Frontend SOC Dashboard (Static SPA served by unprivileged Nginx)
+  # ----------------------------------------------------------------------------
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: agentsentinel-dashboard-prod
+    restart: always
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - sentinel-frontend
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ----------------------------------------------------------------------------
+  # Production Ingress Reverse Proxy (TLS Termination, Rate Limiting, Headers)
+  # ----------------------------------------------------------------------------
+  nginx:
+    image: nginx:alpine
+    container_name: agentsentinel-ingress-prod
+    restart: always
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+      - dashboard
+    networks:
+      - sentinel-frontend
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.2'
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "30m"
+        max-file: "5"

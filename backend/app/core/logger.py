@@ -3,16 +3,22 @@ import sys
 from app.core.config import settings
 
 def setup_logging() -> logging.Logger:
-    """Configures application logging with a clean, standard format."""
+    """Configures application logging with secret redaction and structured JSON support."""
     log_level = getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO)
     
-    formatter = logging.Formatter(
-        fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
-    )
+    from app.core.structured_logger import JSONLogFormatter, SecretRedactingFilter
+
+    if settings.STRUCTURED_LOGGING or settings.ENVIRONMENT.lower() == "production":
+        formatter = JSONLogFormatter()
+    else:
+        formatter = logging.Formatter(
+            fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S"
+        )
 
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(formatter)
+    handler.addFilter(SecretRedactingFilter())
 
     logger = logging.getLogger(settings.APP_NAME)
     logger.setLevel(log_level)

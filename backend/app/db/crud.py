@@ -1,10 +1,11 @@
 import json
 from typing import Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from app.core.logger import logger
 from app.db.models import (
     AgentModel,
+    ApiKeyModel,
     ApprovalModel,
     AttackRunModel,
     AttackScenarioModel,
@@ -17,6 +18,8 @@ from app.db.models import (
     ResearchExperimentModel,
     ResearchObservationModel,
     ResearchRunModel,
+    SchemaMigrationModel,
+    SecurityAlertModel,
     SecurityFindingModel,
     SessionModel,
 )
@@ -889,6 +892,215 @@ def get_research_dataset(db: Optional[Session], dataset_id: str) -> Optional[Res
     if db is None:
         return None
     return db.query(ResearchDatasetModel).filter(ResearchDatasetModel.dataset_id == dataset_id).first()
+
+
+# =============================================================================
+# Phase 0.8: Authentication, API Keys & Security Alerts CRUD
+# =============================================================================
+
+def create_api_key_record(
+    db: Optional[Session],
+    key_id: str,
+    key_prefix: str,
+    key_hash: str,
+    name: str,
+    role: str = "VIEWER",
+    expires_at: Optional[datetime] = None,
+    created_by: str = "system",
+) -> Optional[ApiKeyModel]:
+    """Persists a new hashed API key record."""
+    if db is None:
+        return None
+    record = ApiKeyModel(
+        key_id=key_id,
+        key_prefix=key_prefix,
+        key_hash=key_hash,
+        name=name,
+        role=role,
+        is_active=True,
+        expires_at=expires_at,
+        created_by=created_by,
+    )
+    try:
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+        return record
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to persist API key '{key_id}': {e}", exc_info=True)
+        return None
+
+
+def get_api_key_by_hash(db: Optional[Session], key_hash: str) -> Optional[ApiKeyModel]:
+    """Looks up an active API key record by its SHA-256 hash."""
+    if db is None:
+        return None
+    return db.query(ApiKeyModel).filter(ApiKeyModel.key_hash == key_hash).first()
+
+
+def list_api_keys(db: Optional[Session], include_revoked: bool = False) -> List[ApiKeyModel]:
+    """Lists API keys with optional inclusion of revoked keys."""
+    if db is None:
+        return []
+    query = db.query(ApiKeyModel)
+    if not include_revoked:
+        query = query.filter(ApiKeyModel.is_active == True)
+    return query.order_by(ApiKeyModel.created_at.desc()).all()
+
+
+def revoke_api_key_record(db: Optional[Session], key_id: str) -> bool:
+    """Revokes an API key, rendering it immediately invalid."""
+    if db is None:
+        return False
+    key = db.query(ApiKeyModel).filter(ApiKeyModel.key_id == key_id).first()
+    if not key:
+        return False
+    key.is_active = False
+    key.revoked_at = datetime.now(timezone.utc)
+    try:
+        db.commit()
+        return True
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to revoke API key '{key_id}': {e}", exc_info=True)
+        return False
+
+
+def touch_api_key_last_used(db: Optional[Session], key_id: str) -> None:
+    """Updates the last_used_at timestamp for an authenticated API key."""
+    if db is None:
+        return
+    key = db.query(ApiKeyModel).filter(ApiKeyModel.key_id == key_id).first()
+    if key:
+        key.last_used_at = datetime.now(timezone.utc)
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+
+
+def create_or_update_security_alert(
+    db: Optional[Session],
+    alert_id: str,
+    alert_type: str,
+    severity: str,
+    title: str,
+    description: str = "",
+    source_event_id: Optional[str] = None,
+    source_agent_id: Optional[str] = None,
+    threat_category: Optional[str] = None,
+) -> Optional[SecurityAlertModel]:
+    """
+    Creates a new operational security alert or deduplicates into an existing active alert.
+    If an unresolved alert with the same type and source agent exists, increments count and updates timestamp.
+    """
+    if db is None:
+        return None
+
+    now = datetime.now(timezone.utc)
+    # Deduplication: look for existing active alert of same type and agent
+    existing = (
+        db.query(SecurityAlertModel)
+        .filter(
+            SecurityAlertModel.alert_type == alert_type,
+            SecurityAlertModel.source_agent_id == source_agent_id,
+            SecurityAlertModel.status.in_(["NEW", "ACKNOWLEDGED"]),
+        )
+        .first()
+    )
+
+    if existing:
+        existing.occurrence_count += 1
+        existing.last_seen_at = now
+        existing.severity = severity  # escalate severity if higher
+        try:
+            db.commit()
+            db.refresh(existing)
+            return existing
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Failed to update deduplicated alert: {e}", exc_info=True)
+            return existing
+
+    record = SecurityAlertModel(
+        alert_id=alert_id,
+        alert_type=alert_type,
+        severity=severity,
+        title=title,
+        description=description,
+        source_event_id=source_event_id,
+        source_agent_id=source_agent_id,
+        threat_category=threat_category,
+        status="NEW",
+        occurrence_count=1,
+        first_seen_at=now,
+        last_seen_at=now,
+    )
+    try:
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+        return record
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to record security alert '{alert_id}': {e}", exc_info=True)
+        return None
+
+
+def list_security_alerts(
+    db: Optional[Session],
+    status: Optional[str] = None,
+    severity: Optional[str] = None,
+    limit: int = 50,
+) -> List[SecurityAlertModel]:
+    """Lists operational security alerts with optional status and severity filtering."""
+    if db is None:
+        return []
+    query = db.query(SecurityAlertModel)
+    if status:
+        query = query.filter(SecurityAlertModel.status == status)
+    if severity:
+        query = query.filter(SecurityAlertModel.severity == severity)
+    return query.order_by(SecurityAlertModel.last_seen_at.desc()).limit(limit).all()
+
+
+def update_security_alert_status(
+    db: Optional[Session],
+    alert_id: str,
+    status: str,
+    operator_id: str = "system",
+    notes: Optional[str] = None,
+    acknowledged_by: Optional[str] = None,
+    resolved_by: Optional[str] = None,
+    resolution_notes: Optional[str] = None,
+) -> Optional[SecurityAlertModel]:
+    """Updates the triage status of an alert (ACKNOWLEDGED, RESOLVED, DISMISSED)."""
+    if db is None:
+        return None
+    alert = db.query(SecurityAlertModel).filter(SecurityAlertModel.alert_id == alert_id).first()
+    if not alert:
+        return None
+
+    op_id = acknowledged_by or resolved_by or operator_id
+    alert.status = status
+    if status == "ACKNOWLEDGED":
+        alert.acknowledged_by = op_id
+    elif status == "RESOLVED":
+        alert.resolved_at = datetime.now(timezone.utc)
+        alert.resolved_by = op_id
+        effective_notes = resolution_notes or notes
+        if effective_notes:
+            alert.resolution_notes = effective_notes
+    try:
+        db.commit()
+        db.refresh(alert)
+        return alert
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to update alert status '{alert_id}': {e}", exc_info=True)
+        return None
+
 
 
 
