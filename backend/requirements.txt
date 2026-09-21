@@ -9,3 +9,5 @@ langchain>=0.1.0
 langchain-core>=0.1.0
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
+PyJWT[crypto]>=2.8.0
+cryptography>=42.0.0
