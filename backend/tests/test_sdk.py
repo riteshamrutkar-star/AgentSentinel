@@ -23,7 +23,7 @@ from agentsentinel import (
 
 def test_sdk_has_zero_local_policy_engine():
     """Verify that SDK does not import or evaluate local policy rules."""
-    import sdk.agentsentinel.client as client_mod
+    import agentsentinel.client as client_mod
 
     # Confirm policy module is not imported in SDK client
     assert not hasattr(client_mod, "PolicyEngine")
