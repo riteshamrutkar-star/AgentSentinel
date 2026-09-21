@@ -53,12 +53,19 @@ async def get_audit_events(
 @router.get("/events/{event_id}", summary="Get Audit Log Details for Event")
 async def get_audit_event_details(
     event_id: str,
+    identity: AuthenticatedIdentity = Depends(require_role(AdminRole.VIEWER)),
     db: Session = Depends(get_db)
 ):
     """Retrieves full audited event record by event_id."""
     e = get_security_event_by_id(db, event_id)
     if not e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Audit event '{event_id}' not found.")
+
+    if hasattr(e, "namespace") and e.namespace and not identity.can_access_namespace(e.namespace):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Unauthorized namespace access: Identity cannot access '{e.namespace}'.",
+        )
 
     return {
         "event_id": e.event_id,
@@ -82,6 +89,7 @@ async def get_audit_event_details(
         "latency_ms": e.latency_ms,
         "timestamp": e.timestamp.isoformat() if e.timestamp else None,
         "raw_payload": e.raw_payload_json,
+        "namespace": getattr(e, "namespace", "default"),
     }
 
 @router.get("/approvals", summary="List Approval Requests")
@@ -89,6 +97,7 @@ async def get_approval_requests(
     status_filter: Optional[str] = Query(None, alias="status", description="Filter by status (PENDING, APPROVED, REJECTED)"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    identity: AuthenticatedIdentity = Depends(require_role(AdminRole.VIEWER)),
     db: Session = Depends(get_db)
 ):
     """Lists human approval request records."""
@@ -110,6 +119,7 @@ async def get_approval_requests(
 @router.get("/approvals/{approval_id}", summary="Get Approval Record Details")
 async def get_approval_details(
     approval_id: str,
+    identity: AuthenticatedIdentity = Depends(require_role(AdminRole.VIEWER)),
     db: Session = Depends(get_db)
 ):
     """Retrieves approval record details by approval_id."""

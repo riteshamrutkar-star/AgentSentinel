@@ -218,3 +218,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Ephemeral generated research experiment outputs & manifests
+research/reports/report_exp_*.json
+research/reports/report_exp_*.md
+research/reproducibility/manifest_run_exp_*

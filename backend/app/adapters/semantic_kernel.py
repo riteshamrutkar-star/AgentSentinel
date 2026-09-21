@@ -71,42 +71,62 @@ class AgentSentinelKernelFilter:
         arguments_obj = context.get("arguments", {}) if isinstance(context, dict) else getattr(context, "arguments", {})
         arguments = dict(arguments_obj) if hasattr(arguments_obj, "items") else {"args": str(arguments_obj)}
 
-        if self.client is not None:
-            res = self.client.intercept(
-                tool_name=tool_name,
+        try:
+            if self.client is not None:
+                res = self.client.intercept(
+                    tool_name=tool_name,
+                    agent_id=self.agent_id,
+                    session_id=self.session_id,
+                    namespace=self.namespace,
+                    arguments=arguments,
+                )
+                decision = res.get("decision", "ALLOW") if isinstance(res, dict) else getattr(res, "decision", "ALLOW")
+                if decision != "ALLOW":
+                    reason = res.get("reason", "Semantic Kernel capability denied") if isinstance(res, dict) else getattr(res, "reason", "Semantic Kernel capability denied")
+                    event_id = res.get("event_id") if isinstance(res, dict) else getattr(res, "event_id", None)
+                    canonical_res = CanonicalSecurityResult(
+                        allowed=False,
+                        decision=decision,
+                        decision_reason=reason,
+                        event_id=event_id or "",
+                        trace_id="",
+                        approval_required=False,
+                        execution_allowed=False,
+                        latency_ms=0.0,
+                        namespace=self.namespace,
+                    )
+                    raise SecurityBlockedException(reason, result=canonical_res)
+                return True
+
+            req = CanonicalSecurityRequest(
                 agent_id=self.agent_id,
                 session_id=self.session_id,
-                namespace=self.namespace,
+                tool_name=tool_name,
                 arguments=arguments,
+                framework_name=self.adapter.framework_name,
+                namespace=self.namespace,
             )
-            decision = res.get("decision", "ALLOW") if isinstance(res, dict) else getattr(res, "decision", "ALLOW")
-            if decision != "ALLOW":
-                reason = res.get("reason", "Semantic Kernel capability denied") if isinstance(res, dict) else getattr(res, "reason", "Semantic Kernel capability denied")
-                event_id = res.get("event_id") if isinstance(res, dict) else getattr(res, "event_id", None)
+            self.adapter.enforce(req)
+            return True
+        except SecurityBlockedException:
+            raise
+        except Exception as e:
+            logger.error(f"SemanticKernelAdapter: Unexpected error intercepting '{tool_name}': {e}", exc_info=True)
+            if self.fail_closed:
+                sanitized_reason = "Tool execution blocked: Security evaluation failed closed due to an internal error."
                 canonical_res = CanonicalSecurityResult(
                     allowed=False,
-                    decision=decision,
-                    decision_reason=reason,
-                    event_id=event_id or "",
+                    decision="BLOCK",
+                    decision_reason=sanitized_reason,
+                    event_id="evt_internal_error",
                     trace_id="",
                     approval_required=False,
                     execution_allowed=False,
                     latency_ms=0.0,
                     namespace=self.namespace,
                 )
-                raise SecurityBlockedException(reason, result=canonical_res)
+                raise SecurityBlockedException(sanitized_reason, result=canonical_res)
             return True
-
-        req = CanonicalSecurityRequest(
-            agent_id=self.agent_id,
-            session_id=self.session_id,
-            tool_name=tool_name,
-            arguments=arguments,
-            framework_name=self.adapter.framework_name,
-            namespace=self.namespace,
-        )
-        self.adapter.enforce(req)
-        return True
 
     def on_function_invoked(self, context: Any) -> None:
         """Audits successful completion of a Semantic Kernel function."""

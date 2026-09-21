@@ -11,7 +11,7 @@ are strictly processed by the authoritative AgentSentinel Control Plane.
 from typing import Any, Dict, List, Optional
 import httpx
 
-from sdk.agentsentinel.exceptions import (
+from .exceptions import (
     AgentSentinelError,
     AuthenticationError,
     AuthorizationError,

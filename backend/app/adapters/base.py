@@ -70,6 +70,7 @@ class SecurityBlockedException(Exception):
         self.decision = result.decision if result else "BLOCK"
         self.event_id = result.event_id if result else None
         self.reason = result.decision_reason if result else message
+        self.execution_allowed = result.execution_allowed if result else False
 
 
 class AgentSentinelAdapter(ABC):
@@ -89,39 +90,29 @@ class AgentSentinelAdapter(ABC):
 
     def evaluate_request(self, request: CanonicalSecurityRequest) -> CanonicalSecurityResult:
         """
-        Feeds canonical request into AgentSentinel's core runtime interceptor.
+        Feeds canonical request directly into AgentSentinel's core runtime interceptor.
         Executes within database transaction with rollback protection.
         """
-        tool_req = ToolCallRequest(
-            session_id=request.session_id,
-            agent_id=request.agent_id,
-            user_id=request.user_id,
-            tool_name=request.tool_name,
-            arguments=request.arguments,
-            role=request.role,
-            framework_name=request.framework_name,
-            target_resource=request.target_resource or "",
-            action_type=request.action_type or "EXECUTE",
-            task_summary=request.task_summary or "",
-            prompt_context_summary=request.prompt_context_summary or "",
-            delegation_id=request.delegation_id,
-            namespace=request.namespace,
-        )
+        from app.interceptor.proxy import evaluate_canonical_request
+        from app.core.canonical import canonical_decision_to_adapter_result
 
         db = SessionLocal()
         try:
-            response: InterceptorResponse = intercept_tool_call(tool_req, db)
-            allowed = (response.decision == "ALLOW") and response.execution_allowed
+            decision = evaluate_canonical_request(request, db)
+            return canonical_decision_to_adapter_result(decision)
+        except Exception as e:
+            logger.error(f"AgentSentinelAdapter [{self.framework_name}]: Error evaluating request: {e}", exc_info=True)
+            sanitized_reason = "Security evaluation failed closed due to an internal control plane error."
             return CanonicalSecurityResult(
-                allowed=allowed,
-                decision=response.decision,
-                decision_reason=response.decision_reason,
-                event_id=response.event_id,
-                trace_id=response.trace_id,
-                approval_required=response.approval_required,
-                execution_allowed=response.execution_allowed,
-                latency_ms=response.latency_ms,
-                namespace=response.namespace,
+                allowed=False,
+                decision="BLOCK",
+                decision_reason=sanitized_reason,
+                event_id="evt_internal_error",
+                trace_id="",
+                approval_required=False,
+                execution_allowed=False,
+                latency_ms=0.0,
+                namespace=request.namespace,
             )
         finally:
             db.close()

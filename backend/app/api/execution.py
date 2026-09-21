@@ -12,6 +12,8 @@ from sqlalchemy.orm import Session
 from app.core.logger import logger
 from app.db.crud import get_execution_by_id, list_executions
 from app.db.session import get_db
+from app.auth.models import AdminRole, AuthenticatedIdentity
+from app.auth.dependencies import get_current_identity, require_role, require_namespace_access
 from app.execution.config import execution_config
 from app.execution.gateway import default_execution_gateway
 from app.execution.models import (
@@ -288,6 +290,7 @@ def validate_execution(payload: ExecutionValidateRequest, db: Session = Depends(
 def run_execution(
     payload: ExecutionRunRequest,
     idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
+    identity: AuthenticatedIdentity = Depends(get_current_identity),
     db: Session = Depends(get_db),
 ):
     """
@@ -295,6 +298,16 @@ def run_execution(
     Enforces all 14 execution checks, profile sandboxing, output secret redaction,
     durable namespace boundaries, and idempotency protection against duplicate replays.
     """
+    req_ns = getattr(payload, "namespace", "default") or "default"
+    if not identity.can_access_namespace(req_ns):
+        logger.warning(
+            f"Namespace Access Denied: Identity '{identity.identity_id}' attempted execution "
+            f"in unauthorized namespace '{req_ns}'. Authorized: {identity.allowed_namespaces}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Unauthorized namespace access: Identity '{identity.identity_id}' cannot execute in '{req_ns}'.",
+        )
     import json
     from app.distributed.idempotency import (
         global_idempotency_manager,

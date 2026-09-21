@@ -77,42 +77,62 @@ class AgentSentinelAutoGenInterceptor:
         tool_kwargs: Dict[str, Any],
     ) -> Any:
         """Evaluates a tool execution before invoking tool_fn."""
-        if self.client is not None:
-            res = self.client.intercept(
-                tool_name=tool_name,
+        try:
+            if self.client is not None:
+                res = self.client.intercept(
+                    tool_name=tool_name,
+                    agent_id=self.agent_id,
+                    session_id=self.session_id,
+                    namespace=self.namespace,
+                    arguments=tool_kwargs,
+                )
+                decision = res.get("decision", "ALLOW") if isinstance(res, dict) else getattr(res, "decision", "ALLOW")
+                if decision != "ALLOW":
+                    reason = res.get("reason", "Tool execution blocked") if isinstance(res, dict) else getattr(res, "reason", "Tool execution blocked")
+                    event_id = res.get("event_id") if isinstance(res, dict) else getattr(res, "event_id", None)
+                    canonical_res = CanonicalSecurityResult(
+                        allowed=False,
+                        decision=decision,
+                        decision_reason=reason,
+                        event_id=event_id or "",
+                        trace_id="",
+                        approval_required=False,
+                        execution_allowed=False,
+                        latency_ms=0.0,
+                        namespace=self.namespace,
+                    )
+                    raise SecurityBlockedException(reason, result=canonical_res)
+                return tool_fn(**tool_kwargs)
+
+            req = CanonicalSecurityRequest(
                 agent_id=self.agent_id,
                 session_id=self.session_id,
-                namespace=self.namespace,
+                tool_name=tool_name,
                 arguments=tool_kwargs,
+                framework_name=self.adapter.framework_name,
+                namespace=self.namespace,
             )
-            decision = res.get("decision", "ALLOW") if isinstance(res, dict) else getattr(res, "decision", "ALLOW")
-            if decision != "ALLOW":
-                reason = res.get("reason", "Tool execution blocked") if isinstance(res, dict) else getattr(res, "reason", "Tool execution blocked")
-                event_id = res.get("event_id") if isinstance(res, dict) else getattr(res, "event_id", None)
+            self.adapter.enforce(req)
+            return tool_fn(**tool_kwargs)
+        except SecurityBlockedException:
+            raise
+        except Exception as e:
+            logger.error(f"AutoGenAdapter: Unexpected error intercepting '{tool_name}': {e}", exc_info=True)
+            if self.fail_closed:
+                sanitized_reason = "Tool execution blocked: Security evaluation failed closed due to an internal error."
                 canonical_res = CanonicalSecurityResult(
                     allowed=False,
-                    decision=decision,
-                    decision_reason=reason,
-                    event_id=event_id or "",
+                    decision="BLOCK",
+                    decision_reason=sanitized_reason,
+                    event_id="evt_internal_error",
                     trace_id="",
                     approval_required=False,
                     execution_allowed=False,
                     latency_ms=0.0,
                     namespace=self.namespace,
                 )
-                raise SecurityBlockedException(reason, result=canonical_res)
+                raise SecurityBlockedException(sanitized_reason, result=canonical_res)
             return tool_fn(**tool_kwargs)
-
-        req = CanonicalSecurityRequest(
-            agent_id=self.agent_id,
-            session_id=self.session_id,
-            tool_name=tool_name,
-            arguments=tool_kwargs,
-            framework_name=self.adapter.framework_name,
-            namespace=self.namespace,
-        )
-        self.adapter.enforce(req)
-        return tool_fn(**tool_kwargs)
 
     def wrap_tool_function(
         self,

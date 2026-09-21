@@ -1181,8 +1181,8 @@ export function App() {
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-lg font-bold tracking-tight text-white">AgentSentinel</h1>
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#38bdf8]/20 text-[#38bdf8] border border-[#38bdf8]/40 font-mono font-semibold">
-                v0.9.0-DISTRIBUTED
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#10b981]/20 text-[#34d399] border border-[#10b981]/40 font-mono font-semibold">
+                v1.0.0-RELEASE
               </span>
               {currentIdentity && (
                 <span className="text-[10px] px-2 py-0.5 rounded bg-[#6366f1]/20 text-[#c7d2fe] border border-[#6366f1]/40 font-mono font-semibold flex items-center gap-1">
@@ -1191,7 +1191,7 @@ export function App() {
                 </span>
               )}
             </div>
-            <p className="text-xs text-[#94a3b8]">Security Operations Center — Distributed Control Plane & Runtime Guardrails for AI Agents</p>
+            <p className="text-xs text-[#94a3b8]">Security Operations Center — Unified AI-Agent Security Control Plane (v1.0)</p>
           </div>
         </div>
 
@@ -2811,7 +2811,7 @@ export function App() {
             <div className="flex items-center gap-2">
               <Network className="w-5 h-5 text-[#38bdf8]" />
               <h2 className="text-base font-bold uppercase tracking-wider text-white">
-                Phase 0.9: Distributed Control Plane & Ecosystem Integration
+                Distributed Infrastructure & Ecosystem Interoperability (v1.0)
               </h2>
             </div>
             <p className="text-xs text-[#64748b] mt-0.5">
@@ -2838,36 +2838,40 @@ export function App() {
 
         {/* Durable Namespace Quick Switcher Bar */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-[#0a0d14] rounded-lg border border-[#1e2c47]">
-          <div className="flex items-center gap-2 font-mono text-xs">
-            <span className="text-[#64748b] font-bold uppercase">Durable Namespace Scope:</span>
+          <div className="flex items-center gap-2.5">
+            <Layers className="w-4 h-4 text-[#38bdf8]" />
+            <span className="text-xs font-mono font-bold text-white uppercase">Durable Multi-Tenant Namespace Scope:</span>
+            <span className="text-xs font-mono font-bold text-[#38bdf8] px-2 py-0.5 bg-[#38bdf8]/10 rounded border border-[#38bdf8]/30">
+              {activeNamespace}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-mono text-[#64748b]">Switch Context:</span>
             {['default', 'staging', 'production', 'finance', 'healthcare'].map((ns) => (
               <button
                 key={ns}
                 onClick={() => setActiveNamespace(ns)}
-                className={`px-2.5 py-1 rounded text-xs font-bold transition cursor-pointer ${
+                className={`px-2 py-1 rounded text-xs font-mono font-bold transition ${
                   activeNamespace === ns
-                    ? 'bg-[#38bdf8] text-[#0f172a] shadow'
-                    : 'bg-[#1e293b]/60 text-[#94a3b8] hover:text-white hover:bg-[#1e293b]'
+                    ? 'bg-[#38bdf8] text-black shadow-md'
+                    : 'bg-[#1e293b] text-[#94a3b8] hover:text-white hover:bg-[#334155]'
                 }`}
               >
                 {ns}
               </button>
             ))}
           </div>
-          <div className="text-[11px] font-mono text-[#64748b] flex items-center gap-1">
-            <span className="text-[#34d399]">●</span> Persisted in PostgreSQL 17 across 11 authoritative security tables
-          </div>
         </div>
 
-        {/* SPOF Architectural Transparency Disclosure Banner */}
+        {/* Mandatory SPOF Disclosure Banner */}
         <div className="p-3.5 bg-[#f59e0b]/10 border border-[#f59e0b]/30 rounded-lg flex items-start gap-3">
-          <AlertTriangle className="w-5 h-5 text-[#fbbf24] shrink-0 mt-0.5" />
-          <div className="space-y-1">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-[#fbbf24] font-mono">
-              Single Point of Failure (SPOF) Architecture Disclosure
-            </h4>
-            <p className="text-xs text-[#cbd5e1] leading-relaxed">
-              AgentSentinel v0.9 provides horizontally coordinated active-active application nodes (backend-1 & backend-2 behind Nginx round-robin ingress). State coordination relies on a single Redis 7 coordinator and durability relies on a single PostgreSQL 17 primary. The cluster is <strong className="text-white">NOT</strong> multi-region or highly available (HA); broker or primary database outages require manual recovery or external failover orchestration.
+          <AlertTriangle className="w-5 h-5 text-[#f59e0b] shrink-0 mt-0.5" />
+          <div className="text-xs font-mono space-y-1">
+            <span className="font-bold text-[#fbbf24] uppercase tracking-wider block">
+              Architectural Transparency — Single Point of Failure (SPOF) Disclosure
+            </span>
+            <p className="text-[#cbd5e1] leading-relaxed">
+              AgentSentinel v1.0 provides horizontally coordinated active-active application nodes (backend-1 & backend-2 behind Nginx round-robin ingress). State coordination relies on a single Redis 7 coordinator and durability relies on a single PostgreSQL 17 primary. The cluster is <strong className="text-white">NOT</strong> multi-region or highly available (HA); broker or primary database outages require manual recovery or external failover orchestration.
             </p>
           </div>
         </div>

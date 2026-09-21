@@ -2,6 +2,7 @@ import json
 from app.events.factory import apply_decision, create_security_event, enrich_event_security
 from app.events.model import SecurityEvent
 from app.events.schema import ActionType, ApprovalStatus, ExecutionStage, PolicyResult, SensitivityLevel
+from app.core.config import settings
 
 def test_security_event_creation():
     event = create_security_event(
@@ -170,7 +171,7 @@ def test_siem_connector_cef_format():
     apply_decision(mock_event, policy_result=PolicyResult.DENY, reason="Command execution blocked")
 
     cef_string = connector.format_cef(mock_event)
-    assert cef_string.startswith("CEF:0|AgentSentinel|ControlPlane|0.9.0|")
+    assert cef_string.startswith(f"CEF:0|AgentSentinel|ControlPlane|{settings.APP_VERSION}|")
     assert "bash_exec" in cef_string
     assert "DENY" in cef_string
     assert "Command execution blocked" in cef_string

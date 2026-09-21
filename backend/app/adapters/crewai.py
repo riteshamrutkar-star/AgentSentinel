@@ -83,42 +83,62 @@ class AgentSentinelCrewAIInterceptor:
             if args:
                 arguments["_args"] = list(args)
 
-            if self.client is not None:
-                res = self.client.intercept(
-                    tool_name=name,
-                    agent_id=self.agent_id,
-                    session_id=self.session_id,
-                    namespace=self.namespace,
-                    arguments=arguments,
-                )
-                decision = res.get("decision", "ALLOW") if isinstance(res, dict) else getattr(res, "decision", "ALLOW")
-                if decision != "ALLOW":
-                    reason = res.get("reason", "CrewAI tool disallowed by policy") if isinstance(res, dict) else getattr(res, "reason", "CrewAI tool disallowed by policy")
-                    event_id = res.get("event_id") if isinstance(res, dict) else getattr(res, "event_id", None)
+            try:
+                if self.client is not None:
+                    res = self.client.intercept(
+                        tool_name=name,
+                        agent_id=self.agent_id,
+                        session_id=self.session_id,
+                        namespace=self.namespace,
+                        arguments=arguments,
+                    )
+                    decision = res.get("decision", "ALLOW") if isinstance(res, dict) else getattr(res, "decision", "ALLOW")
+                    if decision != "ALLOW":
+                        reason = res.get("reason", "CrewAI tool disallowed by policy") if isinstance(res, dict) else getattr(res, "reason", "CrewAI tool disallowed by policy")
+                        event_id = res.get("event_id") if isinstance(res, dict) else getattr(res, "event_id", None)
+                        canonical_res = CanonicalSecurityResult(
+                            allowed=False,
+                            decision=decision,
+                            decision_reason=reason,
+                            event_id=event_id or "",
+                            trace_id="",
+                            approval_required=False,
+                            execution_allowed=False,
+                            latency_ms=0.0,
+                            namespace=self.namespace,
+                        )
+                        raise SecurityBlockedException(reason, result=canonical_res)
+                else:
+                    req = CanonicalSecurityRequest(
+                        agent_id=self.agent_id,
+                        role=self.agent_role,
+                        session_id=self.session_id,
+                        tool_name=name,
+                        arguments=arguments,
+                        task_summary=task_summary,
+                        framework_name=self.adapter.framework_name,
+                        namespace=self.namespace,
+                    )
+                    self.adapter.enforce(req)
+            except SecurityBlockedException:
+                raise
+            except Exception as e:
+                logger.error(f"CrewAIAdapter: Unexpected error intercepting '{name}': {e}", exc_info=True)
+                if self.fail_closed:
+                    sanitized_reason = "Tool execution blocked: Security evaluation failed closed due to an internal error."
                     canonical_res = CanonicalSecurityResult(
                         allowed=False,
-                        decision=decision,
-                        decision_reason=reason,
-                        event_id=event_id or "",
+                        decision="BLOCK",
+                        decision_reason=sanitized_reason,
+                        event_id="evt_internal_error",
                         trace_id="",
                         approval_required=False,
                         execution_allowed=False,
                         latency_ms=0.0,
                         namespace=self.namespace,
                     )
-                    raise SecurityBlockedException(reason, result=canonical_res)
-            else:
-                req = CanonicalSecurityRequest(
-                    agent_id=self.agent_id,
-                    role=self.agent_role,
-                    session_id=self.session_id,
-                    tool_name=name,
-                    arguments=arguments,
-                    task_summary=task_summary,
-                    framework_name=self.adapter.framework_name,
-                    namespace=self.namespace,
-                )
-                self.adapter.enforce(req)
+                    raise SecurityBlockedException(sanitized_reason, result=canonical_res)
+                return None
 
             if callable(tool):
                 return tool(*args, **kwargs)

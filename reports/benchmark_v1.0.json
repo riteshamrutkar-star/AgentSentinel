@@ -1,0 +1,138 @@
+{
+  "benchmark_version": "1.0.0",
+  "platform": "AgentSentinel Unified AI-Agent Security Control Plane",
+  "executed_at": "2026-09-21T10:21:00.096152+00:00",
+  "total_scenarios": 10,
+  "total_samples": 550,
+  "total_correct": 540,
+  "overall_accuracy": 0.9818,
+  "scenarios": [
+    {
+      "scenario_id": "SCENARIO-A",
+      "name": "Benign Tool Operations",
+      "samples": 100,
+      "expected_verdict": "ALLOW",
+      "correct_decisions": 90,
+      "accuracy": 0.9,
+      "mean_latency_ms": 18.33,
+      "p50_latency_ms": 13.63,
+      "p95_latency_ms": 26.9,
+      "p99_latency_ms": 336.84
+    },
+    {
+      "scenario_id": "SCENARIO-B",
+      "name": "Direct Prompt Injection & Goal Hijacking",
+      "samples": 50,
+      "expected_verdict": "BLOCK",
+      "correct_decisions": 50,
+      "accuracy": 1.0,
+      "mean_latency_ms": 15.8,
+      "p50_latency_ms": 13.81,
+      "p95_latency_ms": 28.98,
+      "p99_latency_ms": 44.14
+    },
+    {
+      "scenario_id": "SCENARIO-C",
+      "name": "Cross-Namespace Access Denial",
+      "samples": 50,
+      "expected_verdict": "HTTP_403_FORBIDDEN",
+      "correct_decisions": 50,
+      "accuracy": 1.0,
+      "mean_latency_ms": 0.16,
+      "p50_latency_ms": 0.1,
+      "p95_latency_ms": 0.31,
+      "p99_latency_ms": 1.92
+    },
+    {
+      "scenario_id": "SCENARIO-D",
+      "name": "Delegation Capability Escalation Prevention",
+      "samples": 50,
+      "expected_verdict": "BLOCK",
+      "correct_decisions": 50,
+      "accuracy": 1.0,
+      "mean_latency_ms": 0.01,
+      "p50_latency_ms": 0.0,
+      "p95_latency_ms": 0.0,
+      "p99_latency_ms": 0.14
+    },
+    {
+      "scenario_id": "SCENARIO-E",
+      "name": "High-Frequency Tool Burst Abuse",
+      "samples": 50,
+      "expected_verdict": "RISK_EVALUATED",
+      "correct_decisions": 50,
+      "accuracy": 1.0,
+      "mean_latency_ms": 24.79,
+      "p50_latency_ms": 23.68,
+      "p95_latency_ms": 32.85,
+      "p99_latency_ms": 44.97
+    },
+    {
+      "scenario_id": "SCENARIO-F",
+      "name": "Filesystem Path Traversal Prevention",
+      "samples": 50,
+      "expected_verdict": "BLOCK",
+      "correct_decisions": 50,
+      "accuracy": 1.0,
+      "mean_latency_ms": 1.06,
+      "p50_latency_ms": 0.96,
+      "p95_latency_ms": 1.88,
+      "p99_latency_ms": 2.0
+    },
+    {
+      "scenario_id": "SCENARIO-G",
+      "name": "Network Egress Exfiltration Restriction",
+      "samples": 50,
+      "expected_verdict": "BLOCK",
+      "correct_decisions": 50,
+      "accuracy": 1.0,
+      "mean_latency_ms": 0.02,
+      "p50_latency_ms": 0.02,
+      "p95_latency_ms": 0.05,
+      "p99_latency_ms": 0.13
+    },
+    {
+      "scenario_id": "SCENARIO-H",
+      "name": "Secret Exfiltration & Output Redaction",
+      "samples": 50,
+      "expected_verdict": "REDACTED",
+      "correct_decisions": 50,
+      "accuracy": 1.0,
+      "mean_latency_ms": 0.18,
+      "p50_latency_ms": 0.13,
+      "p95_latency_ms": 0.39,
+      "p99_latency_ms": 0.76
+    },
+    {
+      "scenario_id": "SCENARIO-I",
+      "name": "Webhook Replay Attack Rejection",
+      "samples": 50,
+      "expected_verdict": "REJECTED",
+      "correct_decisions": 50,
+      "accuracy": 1.0,
+      "mean_latency_ms": 0.24,
+      "p50_latency_ms": 0.11,
+      "p95_latency_ms": 0.32,
+      "p99_latency_ms": 3.9
+    },
+    {
+      "scenario_id": "SCENARIO-J",
+      "name": "Revoked Credential Rejection",
+      "samples": 50,
+      "expected_verdict": "REJECTED",
+      "correct_decisions": 50,
+      "accuracy": 1.0,
+      "mean_latency_ms": 2.39,
+      "p50_latency_ms": 2.08,
+      "p95_latency_ms": 3.68,
+      "p99_latency_ms": 12.5
+    }
+  ],
+  "infrastructure_disclosures": {
+    "spof_warnings": [
+      "Single Redis 7 Coordinator (Non-HA; fail-closed on outage)",
+      "Single PostgreSQL 17 Primary Database (Non-HA; fail-closed on outage)"
+    ],
+    "adapter_status": "SUPPORTED (Validated with mock harness)"
+  }
+}

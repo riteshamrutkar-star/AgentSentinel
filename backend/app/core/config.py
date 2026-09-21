@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     )
 
     APP_NAME: str = "AgentSentinel"
-    APP_VERSION: str = "0.9.0"
+    APP_VERSION: str = "1.0.0"
     ENVIRONMENT: str = "development"  # "development", "testing", "production"
     DEBUG: bool = True
     TESTING: bool = False

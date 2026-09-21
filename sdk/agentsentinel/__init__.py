@@ -3,8 +3,11 @@ AgentSentinel Developer SDK.
 Official lightweight client for AI agent tool call interception and security governance.
 """
 
-from sdk.agentsentinel.client import AgentSentinelClient, AsyncAgentSentinelClient
-from sdk.agentsentinel.exceptions import (
+from .client import (
+    AgentSentinelClient,
+    AsyncAgentSentinelClient,
+)
+from .exceptions import (
     AgentSentinelError,
     AuthenticationError,
     AuthorizationError,
@@ -15,7 +18,10 @@ from sdk.agentsentinel.exceptions import (
     SecurityBlockedError,
 )
 
+__version__ = "1.0.0"
+
 __all__ = [
+    "__version__",
     "AgentSentinelClient",
     "AsyncAgentSentinelClient",
     "AgentSentinelError",

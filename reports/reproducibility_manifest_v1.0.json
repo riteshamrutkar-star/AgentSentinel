@@ -1,0 +1,27 @@
+{
+  "manifest_version": "1.0.0",
+  "timestamp": "2026-09-21T10:21:00.100744+00:00",
+  "environment": {
+    "python_version": "3.13.7 (tags/v3.13.7:bcee1c3, Aug 14 2025, 14:15:11) [MSC v.1944 64 bit (AMD64)]",
+    "os_platform": "Windows-11-10.0.26200-SP0",
+    "cpu_architecture": "AMD64"
+  },
+  "deterministic_seed": 42,
+  "historical_research_integrity": {
+    "status": "UNTOUCHED_AND_VERIFIED",
+    "historical_baseline_f1": 0.902,
+    "historical_dataset": "research/datasets/dataset-v1.0.jsonl",
+    "historical_dataset_scenarios": 80,
+    "historical_split_counts": {
+      "TRAIN": 45,
+      "VALIDATION": 19,
+      "TEST": 16
+    },
+    "historical_reports_dir": "research/reports/",
+    "guarantee": "No regression detected across the verified v0.1-v0.9 regression suite; historical research artifacts preserved."
+  },
+  "v1_artifacts": {
+    "benchmark_results_file": "reports\\benchmark_v1.0.json",
+    "benchmark_sha256": "72332e2ee45d857fb356b6e35c85f0c221da31ed3db4708b1f3691796cac1a63"
+  }
+}

@@ -175,3 +175,15 @@ def enforce_operator_isolation(
         )
 
     return identity
+
+
+def require_operator_identity(
+    identity: AuthenticatedIdentity = Depends(get_current_identity),
+) -> AuthenticatedIdentity:
+    """Enforces that the authenticated identity is an operator/administrative principal."""
+    if getattr(identity, "is_agent", False) and not getattr(identity, "is_operator", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Agent identity cannot perform human operator actions on administrative control plane.",
+        )
+    return identity

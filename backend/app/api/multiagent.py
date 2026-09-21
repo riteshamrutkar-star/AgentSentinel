@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 
 from app.db.crud import list_security_events
 from app.db.session import get_db
+from app.auth.models import AdminRole, AuthenticatedIdentity
+from app.auth.dependencies import get_current_identity, require_role, require_namespace_access
 from app.multiagent.config import multiagent_config
 from app.multiagent.delegation import default_delegation_manager
 from app.multiagent.interceptor import default_message_interceptor
@@ -75,9 +77,15 @@ class InterceptMessageRequest(BaseModel):
 async def list_registered_agents(
     status_filter: Optional[str] = None,
     namespace: Optional[str] = None,
+    identity: AuthenticatedIdentity = Depends(require_role(AdminRole.VIEWER)),
     db: Session = Depends(get_db)
 ):
     """Returns all agents registered in the AgentSentinel directory."""
+    if namespace and not identity.can_access_namespace(namespace):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Unauthorized namespace access: Identity cannot access '{namespace}'.",
+        )
     agents = default_agent_registry.list_agents(db, namespace=namespace)
     if status_filter:
         agents = [a for a in agents if a.status.value.upper() == status_filter.upper()]
@@ -87,9 +95,15 @@ async def list_registered_agents(
 @router.post("/agents", response_model=AgentIdentity, status_code=status.HTTP_201_CREATED, summary="Register Agent")
 async def register_new_agent(
     payload: AgentRegistrationRequest,
+    identity: AuthenticatedIdentity = Depends(require_role(AdminRole.SECURITY_ADMIN)),
     db: Session = Depends(get_db)
 ):
     """Registers a new agent with explicit role, capabilities, and trust tier."""
+    if not identity.can_access_namespace(payload.namespace):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Unauthorized namespace access: Identity cannot register agent in '{payload.namespace}'.",
+        )
     # Convert capability strings
     caps: List[AgentCapability] = []
     for c in payload.capabilities:
@@ -133,6 +147,7 @@ async def register_new_agent(
 @router.get("/agents/{agent_id}", response_model=AgentIdentity, summary="Get Agent Details")
 async def get_agent_details(
     agent_id: str,
+    identity: AuthenticatedIdentity = Depends(require_role(AdminRole.VIEWER)),
     db: Session = Depends(get_db)
 ):
     """Retrieves identity, capabilities, and status for a specific agent."""
@@ -142,12 +157,18 @@ async def get_agent_details(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent '{agent_id}' not found in registry.",
         )
+    if hasattr(agent, "namespace") and agent.namespace and not identity.can_access_namespace(agent.namespace):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Unauthorized namespace access: Identity cannot access agent in '{agent.namespace}'.",
+        )
     return agent
 
 
 @router.post("/agents/{agent_id}/revoke", summary="Revoke Agent Identity")
 async def revoke_agent_identity(
     agent_id: str,
+    identity: AuthenticatedIdentity = Depends(require_role(AdminRole.SECURITY_ADMIN)),
     db: Session = Depends(get_db)
 ):
     """Revokes an agent identity immediately. Terminating its ability to delegate or invoke tools."""

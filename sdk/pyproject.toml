@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentsentinel"
+version = "1.0.0"
+description = "Official Python Developer SDK for the AgentSentinel AI-Agent Security Control Plane"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "AgentSentinel Security Team", email = "security@agentsentinel.internal" }
+]
+keywords = ["ai", "agents", "security", "guardrails", "governance", "runtime-interception"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "httpx>=0.25.0",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.20.0",
+    "pytest-mock>=3.10.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/AgentSentinel/AgentSentinel"
+Documentation = "https://docs.agentsentinel.internal"
+Repository = "https://github.com/AgentSentinel/AgentSentinel.git"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["agentsentinel*"]
